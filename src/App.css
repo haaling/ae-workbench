@@ -126,20 +126,6 @@
   align-items: center;
 }
 
-.ledger-file-item {
-  height: auto;
-  min-height: 0;
-  max-height: none;
-  display: grid;
-  gap: 8px;
-}
-
-.ledger-map-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
 .file-name-row {
   display: flex;
   align-items: center;
@@ -461,6 +447,9 @@
   font-size: 12px;
   text-align: left;
   white-space: nowrap;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .detail-table th {
@@ -495,10 +484,6 @@
   }
 
   .store-meta-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .ledger-map-grid {
     grid-template-columns: 1fr;
   }
 

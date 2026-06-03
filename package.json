@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "testdata:alipay": "node scripts/generate-alipay-test-data.cjs"
   },
   "dependencies": {
     "file-saver": "^2.0.5",
