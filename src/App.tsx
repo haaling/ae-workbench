@@ -629,31 +629,53 @@ function App() {
 
             if (isIncomeMode) {
               const flowTypeValue = normalizeCellValue(flowTypeColumn ? row[flowTypeColumn] : row.收支类型)
-              if (!flowTypeValue) {
+              const canUseFlowMovementMode = Boolean(flowTypeValue && movementColumn)
+              if (canUseFlowMovementMode) {
+                const feeItemValue = normalizeCellValue(feeItemColumn ? row[feeItemColumn] : '') || flowTypeValue || movementColumn
+                const movementAmount = toIncomeDetailMovementByFlowType(movementColumn, row[movementColumn], flowTypeValue)
+                if (Math.abs(movementAmount) < 0.000001) {
+                  return
+                }
+
+                rows.push({
+                  订单号: orderNo,
+                  收支类型: flowTypeValue || movementColumn,
+                  变动金额: movementAmount,
+                  费用项: feeItemValue,
+                  币种: 'CNY',
+                  来源: sourceLabel,
+                  放退款类型: '',
+                  收支来源文件: baseRow.收支来源文件,
+                  收支来源Sheet: baseRow.收支来源Sheet
+                })
                 return
               }
 
-              if (!movementColumn) {
-                return
-              }
+              // Fallback for order detail exports (e.g. Russia) that provide multiple amount columns
+              // but do not include explicit flow type / movement columns.
+              selectedColumns.forEach((column) => {
+                if (column === normalizeCellValue(baseRow.收支匹配字段名) || isExcludedIncomeDetailColumn(column)) {
+                  return
+                }
 
-              const feeItemValue = normalizeCellValue(feeItemColumn ? row[feeItemColumn] : '') || flowTypeValue || movementColumn
-              const movementAmount = toIncomeDetailMovementByFlowType(movementColumn, row[movementColumn], flowTypeValue)
-              if (Math.abs(movementAmount) < 0.000001) {
-                return
-              }
+                const movementAmount = toIncomeDetailMovementByFlowType(column, baseRow[column], flowTypeValue)
+                if (Math.abs(movementAmount) < 0.000001) {
+                  return
+                }
 
-              rows.push({
-                订单号: orderNo,
-                收支类型: flowTypeValue || movementColumn,
-                变动金额: movementAmount,
-                费用项: feeItemValue,
-                币种: 'CNY',
-                来源: sourceLabel,
-                放退款类型: '',
-                收支来源文件: baseRow.收支来源文件,
-                收支来源Sheet: baseRow.收支来源Sheet
+                rows.push({
+                  订单号: orderNo,
+                  收支类型: column,
+                  变动金额: movementAmount,
+                  费用项: column,
+                  币种: 'CNY',
+                  来源: sourceLabel,
+                  放退款类型: '',
+                  收支来源文件: baseRow.收支来源文件,
+                  收支来源Sheet: baseRow.收支来源Sheet
+                })
               })
+
               return
             }
 
