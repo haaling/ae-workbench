@@ -7,9 +7,11 @@ type StoreMetaSectionProps = {
   shopId: string
   shopName: string
   subsidiary: string
+  usdExchangeRate: string
   onShopIdChange: (value: string) => void
   onShopNameChange: (value: string) => void
   onSubsidiaryChange: (value: string) => void
+  onUsdExchangeRateChange: (value: string) => void
 }
 
 export function StoreMetaSection(props: StoreMetaSectionProps) {
@@ -17,9 +19,11 @@ export function StoreMetaSection(props: StoreMetaSectionProps) {
     shopId,
     shopName,
     subsidiary,
+    usdExchangeRate,
     onShopIdChange,
     onShopNameChange,
-    onSubsidiaryChange
+    onSubsidiaryChange,
+    onUsdExchangeRateChange
   } = props
 
   return (
@@ -61,6 +65,15 @@ export function StoreMetaSection(props: StoreMetaSectionProps) {
             <option value="海外事业部">海外事业部</option>
           </select>
         </div>
+        <div className="control-row">
+          <label>美元汇率（税费核对）</label>
+          <input
+            className="compact-input"
+            value={usdExchangeRate}
+            onChange={(event) => onUsdExchangeRateChange(event.target.value)}
+            placeholder="例如：6.8"
+          />
+        </div>
       </div>
     </section>
   )
@@ -68,12 +81,14 @@ export function StoreMetaSection(props: StoreMetaSectionProps) {
 
 type ActionPanelProps = {
   isProcessing: boolean
+  isUploadingToSaas: boolean
   canProcess: boolean
   result: ProcessResult | null
   lastCalculatedAt: string
   calculationCount: number
   processDisabledReason: string
   onRunCalculation: () => void
+  onUploadToSaas: () => void
   onExportAggregated: () => void
   onExportBusinessDetail: () => void
   onExportOtherSheets: () => void
@@ -82,12 +97,14 @@ type ActionPanelProps = {
 export function ActionPanel(props: ActionPanelProps) {
   const {
     isProcessing,
+    isUploadingToSaas,
     canProcess,
     result,
     lastCalculatedAt,
     calculationCount,
     processDisabledReason,
     onRunCalculation,
+    onUploadToSaas,
     onExportAggregated,
     onExportBusinessDetail,
     onExportOtherSheets
@@ -106,6 +123,9 @@ export function ActionPanel(props: ActionPanelProps) {
       </button>
       <button type="button" className="ghost" onClick={onExportOtherSheets} disabled={!result}>
         导出其他对账Sheet
+      </button>
+      <button type="button" className="ghost warn" onClick={onUploadToSaas} disabled={!result || isUploadingToSaas}>
+        {isUploadingToSaas ? '上传中...' : '上传最终绩效到SaaS'}
       </button>
       {result && lastCalculatedAt && (
         <div className="meta-row">
@@ -181,6 +201,10 @@ export function ResultPreviewPanel(props: ResultPreviewPanelProps) {
         <article>
           <h3>净利润（扣运费+采购）</h3>
           <p>{result.summary.totalIncomeAfterOnlineFreight}</p>
+        </article>
+        <article>
+          <h3>开票金额合计</h3>
+          <p>{result.summary.totalInvoicedPurchaseAmount}</p>
         </article>
       </div>
 

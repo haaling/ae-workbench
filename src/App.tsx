@@ -31,6 +31,20 @@ type PersistedUploadBundle = Domain.PersistedUploadBundle
 type ExternalRecord = Domain.ExternalRecord
 type ResultSummary = Domain.ResultSummary
 
+type AuthUser = {
+  id: string
+  username: string
+  email: string
+  role: string
+  companyId: string | null
+}
+
+const AUTH_TOKEN_STORAGE_KEY = 'saas_access_token'
+const AUTH_USER_STORAGE_KEY = 'saas_auth_user'
+const AUTH_API_BASE_URL_KEY = 'saas_api_base_url'
+const AUTH_GUEST_MODE_KEY = 'saas_guest_mode'
+const DEFAULT_AUTH_API_BASE_URL = 'https://dianxiaomi-auth-server-production.up.railway.app/api'
+
 const {
   DEFAULT_ORDER_ID_HINTS,
   DEFAULT_ORDER_STATUS_HINTS,
@@ -89,6 +103,25 @@ const {
 } = Domain
 
 function App() {
+  const [authApiBaseUrl] = useState(
+    normalizeCellValue(localStorage.getItem(AUTH_API_BASE_URL_KEY)) ||
+    normalizeCellValue(import.meta.env.VITE_SAAS_API_BASE_URL) ||
+    DEFAULT_AUTH_API_BASE_URL
+  )
+  const [authToken, setAuthToken] = useState(normalizeCellValue(localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)))
+  const [isGuestMode, setIsGuestMode] = useState(localStorage.getItem(AUTH_GUEST_MODE_KEY) === '1')
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
+    try {
+      const raw = localStorage.getItem(AUTH_USER_STORAGE_KEY)
+      return raw ? (JSON.parse(raw) as AuthUser) : null
+    } catch {
+      return null
+    }
+  })
+  const [loginEmail, setLoginEmail] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [isLoginSubmitting, setIsLoginSubmitting] = useState(false)
+
   const [ordersFiles, setOrdersFiles] = useState<MultiUploadItem[]>([])
   const [incomeFiles, setIncomeFiles] = useState<IncomeUploadItem[]>([])
   const [refundFiles, setRefundFiles] = useState<IncomeUploadItem[]>([])
@@ -111,6 +144,7 @@ function App() {
   const [freightAmountUsdColumn, setFreightAmountUsdColumn] = useState('')
 
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isUploadingToSaas, setIsUploadingToSaas] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [result, setResult] = useState<ProcessResult | null>(null)
   const [lastCalculatedAt, setLastCalculatedAt] = useState('')
@@ -118,6 +152,7 @@ function App() {
   const [shopId, setShopId] = useState('')
   const [shopName, setShopName] = useState('')
   const [subsidiary, setSubsidiary] = useState('')
+  const [usdExchangeRate, setUsdExchangeRate] = useState('7.20')
   const [uploadCacheReady, setUploadCacheReady] = useState(false)
 
   useEffect(() => {
@@ -145,6 +180,7 @@ function App() {
       setShopId(normalizeCellValue(cache.shopId))
       setShopName(normalizeCellValue(cache.shopName))
       setSubsidiary(normalizeCellValue(cache.subsidiary))
+      setUsdExchangeRate(normalizeCellValue(cache.usdExchangeRate) || '7.20')
     }
     setUploadCacheReady(true)
   }, [])
@@ -176,7 +212,8 @@ function App() {
       freightAmountUsdColumn,
       shopId,
       shopName,
-      subsidiary
+      subsidiary,
+      usdExchangeRate
     }
 
     const writeResult = writeUploadCache(payload)
@@ -206,7 +243,8 @@ function App() {
     freightAmountUsdColumn,
     shopId,
     shopName,
-    subsidiary
+    subsidiary,
+    usdExchangeRate
   ])
 
   function clearLocalUploadCache() {
@@ -233,6 +271,7 @@ function App() {
     setShopId('')
     setShopName('')
     setSubsidiary('')
+    setUsdExchangeRate('7.20')
     setResult(null)
     setLastCalculatedAt('')
     setCalculationCount(0)
@@ -684,6 +723,12 @@ function App() {
                 return
               }
 
+              const refundRowCommissionTotal = normalizeMoney(
+                selectedColumns
+                  .filter((col) => normalizeCellValue(col).includes('佣金'))
+                  .reduce((sum, col) => sum + Math.abs(toNumericValue(baseRow[col])), 0)
+              )
+
               const movementAmount = typeColumn
                 ? toRefundDetailMovement(column, baseRow[column], baseRow[typeColumn])
                 : toIncomeDetailMovementByFlowType(
@@ -709,6 +754,11 @@ function App() {
                 币种: 'CNY',
                 来源: sourceLabel,
                 放退款类型: typeColumn ? normalizeCellValue(baseRow[typeColumn]) : '',
+                放退款行佣金合计: refundRowCommissionTotal,
+                放退款税费候选金额:
+                  typeColumn && hasKeyword(column, REFUND_BASE_AMOUNT_HINTS) && refundRowCommissionTotal <= 0.01
+                    ? Math.abs(movementAmount)
+                    : 0,
                 收支来源文件: baseRow.收支来源文件,
                 收支来源Sheet: baseRow.收支来源Sheet
               })
@@ -763,8 +813,16 @@ function App() {
           .filter(Boolean)
       )
 
+      const isInvoiceMarkedYes = (value: unknown): boolean => {
+        const text = normalizeCellValue(value).toLowerCase()
+        return text === '是' || text === 'y' || text === 'yes' || text === 'true' || text.includes('是')
+      }
+
       const scopedAlipayRecords = alipayRecords.filter((row) => orderIds.has(row.订单号))
       const scopedOfflineRecords = offlineFreightRecords.filter((row) => orderIds.has(row.订单号))
+      const invoicedAlipayOrderSet = new Set(
+        scopedAlipayRecords.filter((row) => isInvoiceMarkedYes(row.是否开发票)).map((row) => normalizeOrderNo(row.订单号))
+      )
       const unmatchedAlipayRows = sortByOrderNo(
         alipayRecords
           .filter((row) => !row.订单号 || !orderIds.has(row.订单号))
@@ -778,6 +836,7 @@ function App() {
             交易对方: row.交易对方,
             商品说明: row.商品说明,
             金额: Number(row.金额.toFixed(2)),
+            是否开发票: normalizeCellValue(row.是否开发票),
             '收/付款方式': row.收付款方式,
             交易订单号: row.交易订单号,
             商家订单号: row.商家订单号,
@@ -1027,6 +1086,8 @@ function App() {
             来源: normalizeCellValue(incomeRow.来源),
             放退款类型: normalizeCellValue(incomeRow.放退款类型),
             放退款核查标记: refundRiskText,
+            放退款行佣金合计: normalizeMoney(incomeRow.放退款行佣金合计),
+            放退款税费候选金额: normalizeMoney(incomeRow.放退款税费候选金额),
             收支来源文件: normalizeCellValue(incomeRow.收支来源文件),
             收支来源Sheet: normalizeCellValue(incomeRow.收支来源Sheet),
             计费金额合计CNY: '',
@@ -1095,6 +1156,7 @@ function App() {
             币种: 'CNY',
             来源: '支付宝订单记录',
             放退款核查标记: '',
+            是否开发票: normalizeCellValue(alipayRow.是否开发票),
             收支来源文件: alipayRow.来源文件,
             收支来源Sheet: alipayRow.来源Sheet,
             支付宝交易单号: alipayRow.支付宝交易单号,
@@ -1268,7 +1330,20 @@ function App() {
           差异_收支不含物流减退放款: 0,
           订单明细_净收支合计: 0,
           订单明细_放款金额合计: 0,
+          订单明细_售中退款金额合计: 0,
+          订单明细_售后退款金额合计: 0,
           订单明细_平台分账金额合计: 0,
+          订单明细_平台分账退回金额合计: 0,
+          订单明细_净放款基准金额: 0,
+          订单明细_净放款口径收入: 0,
+          金掌柜计费金额合计USD: 0,
+          税费金额_金掌柜: 0,
+          税费金额_放退款: 0,
+          税费核对_USD汇率: 0,
+          税费核对_按金掌柜USD折CNY: 0,
+          税费核对_按放退款税费候选金额: 0,
+          税费核对_差异: 0,
+          税费核对状态: '',
           收入_按订单明细: 0,
           预计可得_按收支及运费: 0,
           预计可得_按退放款及运费: 0,
@@ -1276,12 +1351,15 @@ function App() {
           预计可得校验状态: '一致',
           放退款_金额项合计: 0,
           放退款_其他费用合计: 0,
+          放退款_佣金合计: 0,
+          放退款_税费候选金额合计: 0,
           收入_按放退款明细: 0,
           收入差异_订单明细减放退款: 0,
           收入校验状态: '一致',
           线上运费: 0,
           线下运费: 0,
           采购费用: 0,
+          支付宝是否开发票: '',
           最终收入_未扣运费: 0,
           最终收入_扣运费: 0,
           收入合计: 0,
@@ -1339,7 +1417,23 @@ function App() {
           if (type.includes('放款金额')) {
             current.订单明细_放款金额合计 = normalizeMoney(toNumericValue(current.订单明细_放款金额合计) + amount)
           }
-          if (type.includes('平台分账金额')) {
+          if (type.includes('售中退款金额')) {
+            current.订单明细_售中退款金额合计 = normalizeMoney(
+              toNumericValue(current.订单明细_售中退款金额合计) + Math.abs(amount)
+            )
+          }
+          if (type.includes('售后退款金额')) {
+            current.订单明细_售后退款金额合计 = normalizeMoney(
+              toNumericValue(current.订单明细_售后退款金额合计) + Math.abs(amount)
+            )
+          }
+          const isPlatformSplitReturnType =
+            type.includes('平台分账退回金额') || type.includes('平台分账金额退回')
+          if (isPlatformSplitReturnType) {
+            current.订单明细_平台分账退回金额合计 = normalizeMoney(
+              toNumericValue(current.订单明细_平台分账退回金额合计) + Math.abs(amount)
+            )
+          } else if (type.includes('平台分账金额')) {
             current.订单明细_平台分账金额合计 = normalizeMoney(
               toNumericValue(current.订单明细_平台分账金额合计) + Math.abs(amount)
             )
@@ -1349,14 +1443,30 @@ function App() {
         if (source === '放退款订单明细') {
           if (hasKeyword(type, REFUND_BASE_AMOUNT_HINTS)) {
             current.放退款_金额项合计 = normalizeMoney(toNumericValue(current.放退款_金额项合计) + amount)
+            const tariffCandidate = normalizeMoney(row.放退款税费候选金额)
+            if (tariffCandidate > 0.000001) {
+              current.放退款_税费候选金额合计 = normalizeMoney(
+                toNumericValue(current.放退款_税费候选金额合计) + tariffCandidate
+              )
+            }
           } else {
             current.放退款_其他费用合计 = normalizeMoney(
               toNumericValue(current.放退款_其他费用合计) + Math.abs(amount)
             )
+            if (type.includes('佣金')) {
+              current.放退款_佣金合计 = normalizeMoney(
+                toNumericValue(current.放退款_佣金合计) + Math.abs(amount)
+              )
+            }
           }
         }
 
         if (source === '运费表' || type === '物流运费') {
+          const freightUsdAmount = Math.abs(normalizeMoney(row.计费金额合计USD))
+          current.金掌柜计费金额合计USD = normalizeMoney(
+            toNumericValue(current.金掌柜计费金额合计USD) + freightUsdAmount
+          )
+
           if (amount > 0) {
             current.金掌柜物流费支出 = normalizeMoney(toNumericValue(current.金掌柜物流费支出) + amount)
             current.物流支出_金掌柜 = normalizeMoney(toNumericValue(current.物流支出_金掌柜) + amount)
@@ -1376,6 +1486,12 @@ function App() {
 
         if (source === '支付宝订单记录' || type === '采购支出') {
           current.采购费用 = normalizeMoney(toNumericValue(current.采购费用) + Math.abs(amount))
+          const invoiceFlag = normalizeCellValue(row.是否开发票)
+          if (isInvoiceMarkedYes(invoiceFlag)) {
+            current.支付宝是否开发票 = '是'
+          } else if (!normalizeCellValue(current.支付宝是否开发票) && invoiceFlag) {
+            current.支付宝是否开发票 = invoiceFlag
+          }
         }
 
         current[typeColumn] = normalizeMoney(toNumericValue(current[typeColumn]) + amount)
@@ -1384,15 +1500,33 @@ function App() {
           current[typeFeeItemColumn] = normalizeMoney(toNumericValue(current[typeFeeItemColumn]) + amount)
         }
 
-        const legacyOrderDetailIncome = normalizeMoney(
-          toNumericValue(current.订单明细_放款金额合计) - toNumericValue(current.订单明细_平台分账金额合计)
+        const payoutAmount = normalizeMoney(current.订单明细_放款金额合计)
+        const pendingSettlementAmount = normalizeMoney(current.待结算金额合计)
+        const inSaleRefundAmount = normalizeMoney(current.订单明细_售中退款金额合计)
+        const afterSaleRefundAmount = normalizeMoney(current.订单明细_售后退款金额合计)
+        const platformSplitAmount = normalizeMoney(current.订单明细_平台分账金额合计)
+        const platformSplitReturnAmount = normalizeMoney(current.订单明细_平台分账退回金额合计)
+        const isPendingSettlementOrder =
+          pendingSettlementAmount > 0.000001 && !isCompletedOrderStatus(normalizeCellValue(current.订单状态))
+        const netPayoutBaseAmount = isPendingSettlementOrder ? pendingSettlementAmount : payoutAmount
+        const netPayoutIncome = normalizeMoney(
+          netPayoutBaseAmount -
+            inSaleRefundAmount -
+            afterSaleRefundAmount -
+            platformSplitAmount +
+            platformSplitReturnAmount
         )
-        const hasLegacyOrderDetailColumns =
-          Math.abs(toNumericValue(current.订单明细_放款金额合计)) > 0.000001 ||
-          Math.abs(toNumericValue(current.订单明细_平台分账金额合计)) > 0.000001
-        const incomeFromOrderDetail = hasLegacyOrderDetailColumns
-          ? legacyOrderDetailIncome
+        const hasNetPayoutInputs =
+          Math.abs(netPayoutBaseAmount) > 0.000001 ||
+          Math.abs(inSaleRefundAmount) > 0.000001 ||
+          Math.abs(afterSaleRefundAmount) > 0.000001 ||
+          Math.abs(platformSplitAmount) > 0.000001 ||
+          Math.abs(platformSplitReturnAmount) > 0.000001
+        const incomeFromOrderDetail = hasNetPayoutInputs
+          ? netPayoutIncome
           : normalizeMoney(current.订单明细_净收支合计)
+        current.订单明细_净放款基准金额 = netPayoutBaseAmount
+        current.订单明细_净放款口径收入 = netPayoutIncome
         const incomeFromRefundDetail = normalizeMoney(
           toNumericValue(current.放退款_金额项合计) - toNumericValue(current.放退款_其他费用合计)
         )
@@ -1407,14 +1541,36 @@ function App() {
         const logisticsExpenseTotal = normalizeMoney(incomeLogisticsExpense + jzgFreightExpense + offlineFreightExpense)
         current.物流支出总和 = logisticsExpenseTotal
         const totalFreight = logisticsExpenseTotal
+        // Primary metric uses refund detail because order detail can be noisy/incomplete.
+        const primaryIncomeBeforeFreight = incomeFromRefundDetail
         const expectedFromIncomeAndFreight = normalizeMoney(
-          incomeFromOrderDetailExcludingLogistics - logisticsExpenseTotal
+          primaryIncomeBeforeFreight - logisticsExpenseTotal
         )
         const netAfterPurchaseAndFreight = normalizeMoney(expectedFromIncomeAndFreight - purchaseExpense)
         const expectedFromRefundAndFreight = normalizeMoney(
           incomeFromRefundDetail - incomeLogisticsExpense - jzgFreightExpense - offlineFreightExpense
         )
         const expectedIncomeDiff = normalizeMoney(expectedFromIncomeAndFreight - expectedFromRefundAndFreight)
+        const usdRate = normalizeMoney(usdExchangeRate)
+        const tariffByUsdInCny = normalizeMoney(toNumericValue(current.金掌柜计费金额合计USD) * usdRate)
+        const tariffCandidateAmount = normalizeMoney(current.放退款_税费候选金额合计)
+        const tariffByRefundCandidate = tariffCandidateAmount
+        const refundTypeSummary = normalizeCellValue(current.放退款类型)
+        const isDisputeRefundOrder = refundTypeSummary.includes('纠纷')
+        // Dispute refund detail already embeds tax in refund-side amount, so do not deduct tariff twice.
+        const netAfterPurchaseFreightAndTariff = normalizeMoney(
+          isDisputeRefundOrder ? netAfterPurchaseAndFreight : netAfterPurchaseAndFreight - tariffByRefundCandidate
+        )
+        const tariffDiff = normalizeMoney(tariffByRefundCandidate - tariffByUsdInCny)
+        const hasTariffInputs =
+          Math.abs(tariffByRefundCandidate) > 0.000001 || Math.abs(tariffByUsdInCny) > 0.000001
+        const tariffStatus = !hasTariffInputs
+          ? ''
+          : usdRate <= 0
+            ? '缺少汇率'
+            : Math.abs(tariffDiff) <= 1
+              ? '基本对上'
+              : '不一致'
 
         current.收入_按订单明细 = incomeFromOrderDetail
         current.收入_按放退款明细 = incomeFromRefundDetail
@@ -1426,12 +1582,19 @@ function App() {
         current.预计可得_按退放款及运费 = expectedFromRefundAndFreight
         current.预计可得差异_收支减退放款 = expectedIncomeDiff
         current.预计可得校验状态 = Math.abs(expectedIncomeDiff) <= 0.01 ? '一致' : '不一致'
-        current.最终收入_未扣运费 = incomeFromOrderDetailExcludingLogistics
-        current.最终收入_扣运费 = netAfterPurchaseAndFreight
+        current.最终收入_未扣运费 = primaryIncomeBeforeFreight
+        current.最终收入_扣运费 = netAfterPurchaseFreightAndTariff
+        current.税费金额_金掌柜 = tariffByUsdInCny
+        current.税费金额_放退款 = tariffByRefundCandidate
+        current.税费核对_USD汇率 = usdRate
+        current.税费核对_按金掌柜USD折CNY = tariffByUsdInCny
+        current.税费核对_按放退款税费候选金额 = tariffByRefundCandidate
+        current.税费核对_差异 = tariffDiff
+        current.税费核对状态 = tariffStatus
 
         current.收入合计 = incomeFromOrderDetail
         current.支出合计 = normalizeMoney(Math.max(totalFreight, 0) + purchaseExpense)
-        current.总收支 = netAfterPurchaseAndFreight
+        current.总收支 = netAfterPurchaseFreightAndTariff
 
         aggregatedMap.set(orderNo, current)
       })
@@ -1441,6 +1604,11 @@ function App() {
         const zeroIncomeRows = aggregatedRawRows.filter(
           (row) => Math.abs(toNumericValue(row.收入_按订单明细)) < 0.000001
         )
+        const DEBUG_ORDER_NO = '8209071230580395'
+        const debugOrderRow = aggregatedRawRows.find((row) => normalizeOrderNo(row.订单号) === DEBUG_ORDER_NO)
+        const debugOrderPerformanceRows = sortedPerformanceRows.filter(
+          (row) => normalizeOrderNo(row.订单号) === DEBUG_ORDER_NO
+        )
 
         console.groupCollapsed('[Calc Debug] 聚合后关键字段（排查为0）')
         console.log('aggregatedRawRows count:', aggregatedRawRows.length)
@@ -1449,7 +1617,18 @@ function App() {
           订单号: normalizeCellValue(row.订单号),
           订单明细_净收支合计: normalizeMoney(row.订单明细_净收支合计),
           订单明细_放款金额合计: normalizeMoney(row.订单明细_放款金额合计),
+            订单明细_售中退款金额合计: normalizeMoney(row.订单明细_售中退款金额合计),
+            订单明细_售后退款金额合计: normalizeMoney(row.订单明细_售后退款金额合计),
           订单明细_平台分账金额合计: normalizeMoney(row.订单明细_平台分账金额合计),
+            订单明细_平台分账退回金额合计: normalizeMoney(row.订单明细_平台分账退回金额合计),
+            订单明细_净放款基准金额: normalizeMoney(row.订单明细_净放款基准金额),
+            订单明细_净放款口径收入: normalizeMoney(row.订单明细_净放款口径收入),
+            金掌柜计费金额合计USD: normalizeMoney(row.金掌柜计费金额合计USD),
+            税费金额_金掌柜: normalizeMoney(row.税费金额_金掌柜),
+            税费金额_放退款: normalizeMoney(row.税费金额_放退款),
+            税费核对_差异: normalizeMoney(row.税费核对_差异),
+            税费核对状态: normalizeCellValue(row.税费核对状态),
+            放退款_佣金合计: normalizeMoney(row.放退款_佣金合计),
           收入_按订单明细: normalizeMoney(row.收入_按订单明细),
           收入_按放退款明细: normalizeMoney(row.收入_按放退款明细),
           收入差异_订单明细减放退款: normalizeMoney(row.收入差异_订单明细减放退款)
@@ -1458,13 +1637,71 @@ function App() {
           订单号: normalizeCellValue(row.订单号),
           订单明细_净收支合计: normalizeMoney(row.订单明细_净收支合计),
           订单明细_放款金额合计: normalizeMoney(row.订单明细_放款金额合计),
+            订单明细_售中退款金额合计: normalizeMoney(row.订单明细_售中退款金额合计),
+            订单明细_售后退款金额合计: normalizeMoney(row.订单明细_售后退款金额合计),
           订单明细_平台分账金额合计: normalizeMoney(row.订单明细_平台分账金额合计),
+            订单明细_平台分账退回金额合计: normalizeMoney(row.订单明细_平台分账退回金额合计),
+            订单明细_净放款基准金额: normalizeMoney(row.订单明细_净放款基准金额),
+            订单明细_净放款口径收入: normalizeMoney(row.订单明细_净放款口径收入),
+            金掌柜计费金额合计USD: normalizeMoney(row.金掌柜计费金额合计USD),
+            税费金额_金掌柜: normalizeMoney(row.税费金额_金掌柜),
+            税费金额_放退款: normalizeMoney(row.税费金额_放退款),
+            税费核对_差异: normalizeMoney(row.税费核对_差异),
+            税费核对状态: normalizeCellValue(row.税费核对状态),
+            放退款_佣金合计: normalizeMoney(row.放退款_佣金合计),
           收入_按订单明细: normalizeMoney(row.收入_按订单明细),
           物流费用_支出表: normalizeMoney(row.收支表_支出物流费用),
           物流费用_金掌柜: normalizeMoney(row.金掌柜物流费支出),
           线下物流: normalizeMoney(row.线下运费),
           总物流费用: normalizeMoney(row.物流支出总和)
         })))
+        console.groupCollapsed(`[Calc Debug] 指定订单全量排查: ${DEBUG_ORDER_NO}`)
+        if (!debugOrderRow) {
+          console.warn('未在聚合结果中找到该订单，请检查订单号是否在订单表中、以及格式是否一致。')
+        } else {
+          console.log('订单聚合字段:', {
+            订单号: normalizeOrderNo(debugOrderRow.订单号),
+            订单状态: normalizeCellValue(debugOrderRow.订单状态),
+            订单明细_净收支合计: normalizeMoney(debugOrderRow.订单明细_净收支合计),
+            订单明细_放款金额合计: normalizeMoney(debugOrderRow.订单明细_放款金额合计),
+            订单明细_售中退款金额合计: normalizeMoney(debugOrderRow.订单明细_售中退款金额合计),
+            订单明细_售后退款金额合计: normalizeMoney(debugOrderRow.订单明细_售后退款金额合计),
+            订单明细_平台分账金额合计: normalizeMoney(debugOrderRow.订单明细_平台分账金额合计),
+            订单明细_平台分账退回金额合计: normalizeMoney(debugOrderRow.订单明细_平台分账退回金额合计),
+            订单明细_净放款基准金额: normalizeMoney(debugOrderRow.订单明细_净放款基准金额),
+            订单明细_净放款口径收入: normalizeMoney(debugOrderRow.订单明细_净放款口径收入),
+            金掌柜计费金额合计USD: normalizeMoney(debugOrderRow.金掌柜计费金额合计USD),
+            税费金额_金掌柜: normalizeMoney(debugOrderRow.税费金额_金掌柜),
+            税费金额_放退款: normalizeMoney(debugOrderRow.税费金额_放退款),
+            税费核对_USD汇率: normalizeMoney(debugOrderRow.税费核对_USD汇率),
+            税费核对_差异: normalizeMoney(debugOrderRow.税费核对_差异),
+            税费核对状态: normalizeCellValue(debugOrderRow.税费核对状态),
+            放退款_佣金合计: normalizeMoney(debugOrderRow.放退款_佣金合计),
+            收入_按订单明细: normalizeMoney(debugOrderRow.收入_按订单明细),
+            收支表_支出物流费用: normalizeMoney(debugOrderRow.收支表_支出物流费用),
+            金掌柜物流费支出: normalizeMoney(debugOrderRow.金掌柜物流费支出),
+            线下运费: normalizeMoney(debugOrderRow.线下运费),
+            物流支出总和: normalizeMoney(debugOrderRow.物流支出总和),
+            采购费用: normalizeMoney(debugOrderRow.采购费用),
+            最终收入_未扣运费: normalizeMoney(debugOrderRow.最终收入_未扣运费),
+            最终收入_扣运费: normalizeMoney(debugOrderRow.最终收入_扣运费)
+          })
+        }
+
+        console.log('该订单参与聚合的业务明细行数:', debugOrderPerformanceRows.length)
+        console.table(
+          debugOrderPerformanceRows.map((row) => ({
+            订单号: normalizeOrderNo(row.订单号),
+            来源: normalizeCellValue(row.来源),
+            收支类型: normalizeCellValue(row.收支类型),
+            费用项: normalizeCellValue(row.费用项),
+            放退款类型: normalizeCellValue(row.放退款类型),
+            变动金额: normalizeMoney(row.变动金额),
+            收支来源文件: normalizeCellValue(row.收支来源文件),
+            收支来源Sheet: normalizeCellValue(row.收支来源Sheet)
+          }))
+        )
+        console.groupEnd()
         console.groupEnd()
       }
 
@@ -1516,6 +1753,7 @@ function App() {
             线下物流: normalizeMoney(next.线下运费),
             总物流费用: normalizeMoney(next.物流支出总和),
             采购费用: normalizeMoney(next.采购费用),
+            支付宝是否开发票: normalizeCellValue(next.支付宝是否开发票),
             净利润: normalizeMoney(next.最终收入_扣运费),
             放退款类型: normalizeCellValue(next.放退款类型),
             放退款核查标记: normalizeCellValue(next.放退款核查标记),
@@ -1525,7 +1763,19 @@ function App() {
             收入_按放退款明细: normalizeMoney(next.收入_按放退款明细),
             收入_按订单明细: normalizeMoney(next.收入_按订单明细),
             订单明细_放款金额合计: normalizeMoney(next.订单明细_放款金额合计),
+            订单明细_售中退款金额合计: normalizeMoney(next.订单明细_售中退款金额合计),
+            订单明细_售后退款金额合计: normalizeMoney(next.订单明细_售后退款金额合计),
             订单明细_平台分账金额合计: normalizeMoney(next.订单明细_平台分账金额合计),
+            订单明细_平台分账退回金额合计: normalizeMoney(next.订单明细_平台分账退回金额合计),
+            订单明细_净放款基准金额: normalizeMoney(next.订单明细_净放款基准金额),
+            订单明细_净放款口径收入: normalizeMoney(next.订单明细_净放款口径收入),
+            金掌柜计费金额合计USD: normalizeMoney(next.金掌柜计费金额合计USD),
+            税费金额_金掌柜: normalizeMoney(next.税费金额_金掌柜),
+            税费金额_放退款: normalizeMoney(next.税费金额_放退款),
+            税费核对_USD汇率: normalizeMoney(next.税费核对_USD汇率),
+            税费核对_差异: normalizeMoney(next.税费核对_差异),
+            税费核对状态: normalizeCellValue(next.税费核对状态),
+            放退款_佣金合计: normalizeMoney(next.放退款_佣金合计),
             收入_收支明细表: normalizeMoney(next.收入_收支明细表),
             支出_收支明细表: normalizeMoney(next.支出_收支明细表),
             收支总和_不含物流费用: normalizeMoney(next.收支总和_不含物流费用),
@@ -1581,6 +1831,7 @@ function App() {
           const orderIncome = toNumericValue(row.收入_按订单明细)
           const logistics = normalizeMoney(toNumericValue(row.总物流费用))
           const purchaseExpense = normalizeMoney(toNumericValue(row.采购费用))
+          const orderNo = normalizeOrderNo(row.订单号)
           const finalIncome = toNumericValue(row.净利润)
           const incomeBeforeFreight = toNumericValue(row.订单预计可得)
           const mismatch = normalizeCellValue(row.收入校验状态) === '不一致'
@@ -1600,6 +1851,9 @@ function App() {
           acc.totalExpense += logistics + purchaseExpense
           acc.logisticsAmount += logistics
           acc.nonLogisticsAmount += purchaseExpense
+          if (invoicedAlipayOrderSet.has(orderNo)) {
+            acc.totalInvoicedPurchaseAmount += purchaseExpense
+          }
           acc.totalAmount += finalIncome
           acc.totalIncomeBeforeFreight += incomeBeforeFreight
           acc.totalIncomeAfterOnlineFreight += finalIncome
@@ -1623,7 +1877,8 @@ function App() {
           disputeOrderCount: 0,
           otherOrderCount: 0,
           totalIncomeBeforeFreight: 0,
-          totalIncomeAfterOnlineFreight: 0
+          totalIncomeAfterOnlineFreight: 0,
+          totalInvoicedPurchaseAmount: 0
         } as ResultSummary
       )
 
@@ -1634,6 +1889,7 @@ function App() {
       summary.nonLogisticsAmount = Number(summary.nonLogisticsAmount.toFixed(2))
       summary.totalIncomeBeforeFreight = Number(summary.totalIncomeBeforeFreight.toFixed(2))
       summary.totalIncomeAfterOnlineFreight = Number(summary.totalIncomeAfterOnlineFreight.toFixed(2))
+      summary.totalInvoicedPurchaseAmount = Number(summary.totalInvoicedPurchaseAmount.toFixed(2))
 
       setResult({
         performanceRows: sortedPerformanceRows,
@@ -1765,6 +2021,203 @@ function App() {
     XLSX.writeFile(workbook, getExportFileName('其他对账表', dateText, { shopName, shopId, subsidiary }))
   }
 
+  async function uploadFinalResultToSaas() {
+    if (isGuestMode) {
+      setErrorMessage('当前为本地模式，未登录账号，暂不支持上传到 SaaS。')
+      return
+    }
+
+    if (!result) {
+      setErrorMessage('请先执行计算，再上传最终绩效结果。')
+      return
+    }
+
+    const configuredBaseUrl =
+      normalizeCellValue(authApiBaseUrl) ||
+      normalizeCellValue(localStorage.getItem(AUTH_API_BASE_URL_KEY)) ||
+      normalizeCellValue(import.meta.env.VITE_SAAS_API_BASE_URL)
+    const configuredToken = normalizeCellValue(authToken)
+    const configuredStoreId = normalizeCellValue(localStorage.getItem('saas_store_id'))
+
+    const apiBaseUrl = configuredBaseUrl
+    const token =
+      configuredToken ||
+      normalizeCellValue(window.prompt('请输入登录后获取的 Access Token（Bearer Token）', ''))
+    const storeId =
+      configuredStoreId ||
+      normalizeCellValue(window.prompt('请输入店铺ID（Mongo ObjectId）', ''))
+
+    if (!apiBaseUrl || !token || !storeId) {
+      setErrorMessage('上传取消：系统地址、Token 或店铺ID缺失。')
+      return
+    }
+
+    localStorage.setItem(AUTH_API_BASE_URL_KEY, apiBaseUrl)
+    localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token)
+    localStorage.setItem('saas_store_id', storeId)
+
+    const periodDefault = new Date().toISOString().slice(0, 7)
+    const periodInput = normalizeCellValue(
+      window.prompt('请输入期间（例如 2026-06）', periodDefault)
+    )
+    if (!periodInput) {
+      setErrorMessage('上传取消：缺少 period。')
+      return
+    }
+
+    setIsUploadingToSaas(true)
+    setErrorMessage('')
+
+    try {
+      const endpoint = `${apiBaseUrl.replace(/\/$/, '')}/tenant/performance/final-results`
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          storeId,
+          period: periodInput,
+          summary: result.summary,
+          aggregatedRows: result.aggregatedRows
+        })
+      })
+
+      const payload = await response.json().catch(() => ({ success: false, message: '响应解析失败' }))
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.message || `上传失败（HTTP ${response.status}）`)
+      }
+
+      setErrorMessage(`上传成功：期间 ${periodInput}，共 ${result.aggregatedRows.length} 条订单聚合数据。`)
+    } catch (error) {
+      setErrorMessage(`上传失败：${error instanceof Error ? error.message : '未知错误'}`)
+    } finally {
+      setIsUploadingToSaas(false)
+    }
+  }
+
+  async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setErrorMessage('')
+
+    const apiBaseUrl = normalizeCellValue(authApiBaseUrl)
+    if (!apiBaseUrl) {
+      setErrorMessage('系统未配置 API 地址，请联系管理员。')
+      return
+    }
+    if (!loginEmail || !loginPassword) {
+      setErrorMessage('请输入邮箱和密码。')
+      return
+    }
+
+    setIsLoginSubmitting(true)
+    try {
+      const endpoint = `${apiBaseUrl.replace(/\/$/, '')}/auth/login`
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: loginEmail.trim(),
+          password: loginPassword
+        })
+      })
+
+      const payload = await response.json().catch(() => ({ success: false, message: '响应解析失败' }))
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.message || `登录失败（HTTP ${response.status}）`)
+      }
+
+      const token = normalizeCellValue(payload?.data?.token)
+      const user = payload?.data?.user as AuthUser | undefined
+      if (!token || !user) {
+        throw new Error('登录响应缺少 token 或 user 信息')
+      }
+
+      setAuthToken(token)
+      setAuthUser(user)
+
+      localStorage.setItem(AUTH_API_BASE_URL_KEY, apiBaseUrl)
+      localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token)
+      localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user))
+      setErrorMessage('')
+    } catch (error) {
+      setErrorMessage(`登录失败：${error instanceof Error ? error.message : '未知错误'}`)
+    } finally {
+      setIsLoginSubmitting(false)
+    }
+  }
+
+  function handleLogout() {
+    setAuthToken('')
+    setAuthUser(null)
+    setIsGuestMode(false)
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+    localStorage.removeItem(AUTH_USER_STORAGE_KEY)
+    localStorage.removeItem(AUTH_GUEST_MODE_KEY)
+    setErrorMessage('已退出登录。')
+  }
+
+  function enterGuestMode() {
+    setIsGuestMode(true)
+    localStorage.setItem(AUTH_GUEST_MODE_KEY, '1')
+    setErrorMessage('已进入本地模式：可计算和导出，本模式下不上传 SaaS。')
+  }
+
+  if ((!authToken || !authUser) && !isGuestMode) {
+    return (
+      <main className="page login-page">
+        <section className="login-shell">
+          <header className="page-header login-header">
+            <span className="badge">Cross-border Ops</span>
+            <h1>业绩计算工作台</h1>
+            <p>请先登录，再进入绩效计算页面。</p>
+          </header>
+
+          <section className="upload-card login-card">
+            <h2>登录</h2>
+            <form className="auth-form" onSubmit={handleLogin}>
+              <p className="hint-text">系统已自动连接测试环境，无需手动配置地址。</p>
+              <p className="hint-text">没有账号也可以先进入本地模式，后续再绑定账号上传。</p>
+              <div className="control-row">
+                <label>邮箱</label>
+                <input
+                  className="compact-input"
+                  type="email"
+                  value={loginEmail}
+                  onChange={(event) => setLoginEmail(event.target.value)}
+                  placeholder="finance@example.com"
+                />
+              </div>
+              <div className="control-row">
+                <label>密码</label>
+                <input
+                  className="compact-input"
+                  type="password"
+                  value={loginPassword}
+                  onChange={(event) => setLoginPassword(event.target.value)}
+                  placeholder="请输入密码"
+                />
+              </div>
+              <div className="auth-actions">
+                <button type="submit" className="auth-primary-button" disabled={isLoginSubmitting}>
+                  {isLoginSubmitting ? '登录中...' : '登录并进入工作台'}
+                </button>
+                <button type="button" className="auth-secondary-button" onClick={enterGuestMode}>
+                  我没有账号，先进入本地模式
+                </button>
+              </div>
+            </form>
+          </section>
+
+          {errorMessage && <div className="error-box login-error-box">{errorMessage}</div>}
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="page">
       <header className="page-header">
@@ -1777,7 +2230,14 @@ function App() {
           <span className="meta-key">本地缓存</span>
           <span className="meta-value">已开启（上传后自动保存，刷新页面自动恢复）</span>
         </div>
+        <div className="meta-row">
+          <span className="meta-key">当前登录</span>
+          <span className="meta-value">{isGuestMode ? '本地模式 / guest' : `${authUser?.username || ''} / ${authUser?.role || ''}`}</span>
+        </div>
         <div className="actions-row">
+          <button type="button" className="ghost" onClick={handleLogout}>
+            退出登录
+          </button>
           <button type="button" className="ghost" onClick={clearLocalUploadCache}>
             清空本地缓存
           </button>
@@ -1788,9 +2248,11 @@ function App() {
         shopId={shopId}
         shopName={shopName}
         subsidiary={subsidiary}
+        usdExchangeRate={usdExchangeRate}
         onShopIdChange={setShopId}
         onShopNameChange={setShopName}
         onSubsidiaryChange={setSubsidiary}
+        onUsdExchangeRateChange={setUsdExchangeRate}
       />
 
       <section className="upload-sections">
@@ -1835,7 +2297,7 @@ function App() {
         />
         <SimpleUploadCardInternal
           title="5) 支付宝订单记录（采购）"
-          description="支持多文件上传。备注按“店铺名-订单号”匹配，系统会自动摘取短线后的订单号。"
+          description="支持多文件上传。备注中自动提取连续16位数字作为订单号。"
           table="alipay"
           files={alipayFiles}
           emptyText="尚未上传支付宝订单记录"
@@ -1855,12 +2317,14 @@ function App() {
 
       <ActionPanel
         isProcessing={isProcessing}
+        isUploadingToSaas={isUploadingToSaas}
         canProcess={canProcess()}
         result={result}
         lastCalculatedAt={lastCalculatedAt}
         calculationCount={calculationCount}
         processDisabledReason={getProcessDisabledReason()}
         onRunCalculation={runCalculation}
+        onUploadToSaas={uploadFinalResultToSaas}
         onExportAggregated={exportAggregatedWorkbook}
         onExportBusinessDetail={exportBusinessDetailWorkbook}
         onExportOtherSheets={exportOtherSheetsWorkbook}

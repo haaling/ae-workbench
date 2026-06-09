@@ -1,5 +1,6 @@
 import type * as Domain from '../calculatorDomain'
 import {
+  DEFAULT_ALIPAY_INVOICE_HINTS,
   DEFAULT_ALIPAY_COUNTERPART_HINTS,
   DEFAULT_OFFLINE_CATEGORY_HINTS,
   DEFAULT_OFFLINE_AMOUNT_HINTS,
@@ -95,6 +96,12 @@ function extractOrderNoFromCustomerOrder(value: string): string {
     return ''
   }
 
+  // Prefer exact 16-digit chunks embedded in mixed text, e.g. aaa-1234759299222333J.
+  const exact16DigitCandidates = Array.from(text.matchAll(/(?:^|\D)(\d{16})(?=\D|$)/g)).map((match) => match[1])
+  if (exact16DigitCandidates.length > 0) {
+    return exact16DigitCandidates[exact16DigitCandidates.length - 1]
+  }
+
   const normalizedWhole = normalizeOrderNo(text)
   if (/^\d{10,}$/.test(normalizedWhole)) {
     return normalizedWhole
@@ -137,6 +144,7 @@ export function buildExternalRecords(input: ExternalRecordBuildInput): ExternalR
     const counterpartColumn = pickDefaultColumn(selectedSheet.headers, DEFAULT_ALIPAY_COUNTERPART_HINTS)
     const productColumn = pickDefaultColumn(selectedSheet.headers, DEFAULT_ALIPAY_PRODUCT_HINTS)
     const payMethodColumn = pickDefaultColumn(selectedSheet.headers, DEFAULT_ALIPAY_PAY_METHOD_HINTS)
+    const invoiceColumn = pickDefaultColumn(selectedSheet.headers, DEFAULT_ALIPAY_INVOICE_HINTS)
     const tradeOrderColumn = pickDefaultColumn(selectedSheet.headers, DEFAULT_ALIPAY_TRADE_ORDER_HINTS)
     const merchantOrderColumn = pickDefaultColumn(selectedSheet.headers, DEFAULT_ALIPAY_MERCHANT_ORDER_HINTS)
 
@@ -163,6 +171,7 @@ export function buildExternalRecords(input: ExternalRecordBuildInput): ExternalR
         订单号: orderNo,
         金额: Number(amount.toFixed(2)),
         备注: remark,
+        是否开发票: mode === 'alipay' ? normalizeCellValue(row[invoiceColumn]) : '',
         店铺名: parsedShopName,
         订单号来源: useParsedRemarkOrderNoOnly ? '备注解析' : parsedRemarkOrderNo ? '备注解析' : '',
         支付宝交易单号: mode === 'alipay' ? normalizeCellValue(row[tradeNoColumn]) : '',

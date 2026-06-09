@@ -260,6 +260,90 @@
   gap: 6px;
 }
 
+.auth-form {
+  display: grid;
+  gap: 10px;
+}
+
+.login-page {
+  min-height: 100vh;
+  padding: 20px;
+  place-items: center;
+  background:
+    radial-gradient(circle at 12% 14%, rgba(255, 196, 118, 0.42), transparent 45%),
+    radial-gradient(circle at 88% 82%, rgba(255, 232, 188, 0.42), transparent 48%),
+    linear-gradient(160deg, #fff7ea 0%, #fffdf8 52%, #f9f2e7 100%);
+}
+
+.login-shell {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 14px;
+}
+
+.login-header {
+  text-align: center;
+}
+
+.login-header p {
+  margin-inline: auto;
+}
+
+.login-card {
+  width: 100%;
+  border-radius: 18px;
+  padding: 22px;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 248, 236, 0.92) 100%);
+  box-shadow: 0 24px 48px rgba(88, 52, 10, 0.12);
+}
+
+.auth-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.auth-primary-button,
+.auth-secondary-button {
+  border-radius: 12px;
+  border: 1px solid transparent;
+  min-height: 42px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
+}
+
+.auth-primary-button {
+  color: #fff;
+  background: linear-gradient(135deg, #d35400 0%, #f39c12 100%);
+  box-shadow: 0 10px 22px rgba(211, 84, 0, 0.25);
+}
+
+.auth-secondary-button {
+  color: #8a3b00;
+  border-color: #f2ba85;
+  background: linear-gradient(180deg, #fff8ee 0%, #fff 100%);
+}
+
+.auth-primary-button:hover:not(:disabled),
+.auth-secondary-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.01);
+}
+
+.auth-primary-button:disabled,
+.auth-secondary-button:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.login-error-box {
+  margin-top: -2px;
+}
+
 .control-row-inline {
   display: flex;
   align-items: center;
@@ -356,6 +440,12 @@
   background: #fff;
   color: var(--accent-dark);
   border: 1px solid var(--panel-border-strong);
+}
+
+.action-panel .warn {
+  border-color: #f4b26f;
+  color: #8a3b00;
+  background: linear-gradient(180deg, #fff7ea 0%, #fff 100%);
 }
 
 .error-box {
@@ -503,6 +593,14 @@
 @media (max-width: 640px) {
   .page {
     padding: 6px;
+  }
+
+  .login-page {
+    padding: 12px;
+  }
+
+  .login-card {
+    padding: 16px;
   }
 
   .page-header {

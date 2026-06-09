@@ -68,6 +68,7 @@ export type ResultSummary = {
   otherOrderCount: number
   totalIncomeBeforeFreight: number
   totalIncomeAfterOnlineFreight: number
+  totalInvoicedPurchaseAmount: number
 }
 
 export type PersistedUploadBundle = {
@@ -93,6 +94,7 @@ export type PersistedUploadBundle = {
   shopId: string
   shopName: string
   subsidiary: string
+  usdExchangeRate: string
 }
 
 export const UPLOAD_CACHE_STORAGE_KEY = 'performance_calculator_upload_cache_v1'
@@ -134,7 +136,6 @@ export const DEFAULT_INCOME_DETAIL_AMOUNT_HINTS = [
   '返利',
   '赔付',
   '手续费',
-  '补贴',
   '待结算金额',
   '售中退款金额',
   '放款金额',
@@ -149,6 +150,7 @@ export const DEFAULT_REFUND_SKU_ID_HINTS = ['sku id', 'skuid', 'sku_id', 'sku', 
 export const REFUND_BASE_AMOUNT_HINTS = ['放款金额', '退款金额', '放退款金额', '待结算金额']
 export const DEFAULT_ALIPAY_REMARK_HINTS = ['备注', '订单备注', '商家备注', '说明', 'memo']
 export const DEFAULT_ALIPAY_AMOUNT_HINTS = ['金额', '实付', '付款', '交易金额', '订单金额', '支出']
+export const DEFAULT_ALIPAY_INVOICE_HINTS = ['是否开发票', '开票', '发票', '是否开票']
 export const DEFAULT_ALIPAY_TRADE_NO_HINTS = ['支付宝交易号', '交易号', '交易流水号', 'trade no', '交易单号']
 export const DEFAULT_ALIPAY_COUNTERPART_HINTS = ['交易对方', '对方账户', '对方姓名', '对方']
 export const DEFAULT_ALIPAY_PRODUCT_HINTS = ['商品说明', '商品名称', '商品', '交易说明', '说明']
@@ -164,6 +166,7 @@ export type ExternalRecord = {
   订单号: string
   金额: number
   备注: string
+  是否开发票: string
   店铺名: string
   订单号来源: string
   支付宝交易单号: string
@@ -467,27 +470,9 @@ export function extractOrderNoFromRemark(remark: string): string {
     return ''
   }
 
-  // Support remarks that are directly an order number without any prefix.
-  if (/^[A-Za-z0-9]{8,}$/.test(text)) {
-    return normalizeCellValue(text)
-  }
-
-  const embeddedMatch = text.match(/([A-Za-z0-9]{8,})/)
-  if (embeddedMatch?.[1]) {
-    return normalizeCellValue(embeddedMatch[1])
-  }
-
-  const dashMatch = text.match(/[-—_]\s*([A-Za-z0-9]+)\s*$/)
-  if (dashMatch?.[1]) {
-    return normalizeCellValue(dashMatch[1])
-  }
-
-  const parts = text.split(/[-—_]/).map((item) => normalizeCellValue(item)).filter(Boolean)
-  if (parts.length >= 2) {
-    return parts[parts.length - 1]
-  }
-
-  return ''
+  // Alipay remark extraction uses strict 16-digit continuous order ids only.
+  const candidates = Array.from(text.matchAll(/(?:^|\D)(\d{16})(?=\D|$)/g)).map((match) => match[1])
+  return candidates.length > 0 ? candidates[candidates.length - 1] : ''
 }
 
 export function matchesShopRemarkPrefix(remark: string, currentShopName: string): boolean {
@@ -706,7 +691,7 @@ export function buildRefundRiskMap(rows: Array<{ 订单号: string; 商品名称
     const hasSameSkuInNonLogistics = Array.from(skuCountMap.values()).some((count) => count >= 2)
 
     if (hasMultiRows && nonLogisticsRows.length >= 2 && hasSameSkuInNonLogistics) {
-      map.set(orderNo, '放退款多条且非物流费行存在相同SKU(疑似含关税未剔除)')
+      map.set(orderNo, '关税支出')
     }
   })
 
