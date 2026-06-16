@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import * as XLSX from 'xlsx'
 import type * as Domain from '../calculatorDomain'
 
 type MultiUploadItem = Domain.MultiUploadItem
@@ -182,11 +183,41 @@ type SimpleUploadCardProps = {
 export function SimpleUploadCard(props: SimpleUploadCardProps) {
   const { title, description, table, files, emptyText, onFileUpload, onRemove } = props
 
+  const downloadTemplate = () => {
+    const workbook = XLSX.utils.book_new()
+
+    if (table === 'alipay') {
+      const rows = [
+        {
+          金额: 120.5,
+          备注: '示例店铺-1234567890123456'
+        }
+      ]
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), '支付宝采购模板')
+      XLSX.writeFile(workbook, '支付宝订单记录_填写模板.xlsx')
+      return
+    }
+
+    const rows = [
+      {
+        客户订单号: '示例店铺-1234567890123456',
+        金额: 18.6
+      }
+    ]
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), '线下发货模板')
+    XLSX.writeFile(workbook, '线下发货订单记录_填写模板.xlsx')
+  }
+
   return (
     <section className="upload-card">
       <h2 className="upload-title-row">
         <span>{title}</span>
-        <span className="upload-count-pill">已上传 {files.length} 份</span>
+        <span className="upload-title-actions">
+          <button type="button" className="upload-count-pill upload-pill-button" onClick={downloadTemplate}>
+            下载填写模板
+          </button>
+          <span className="upload-count-pill">已上传 {files.length} 份</span>
+        </span>
       </h2>
       <p className="upload-card-subtitle">{description}</p>
 

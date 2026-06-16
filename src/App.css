@@ -499,6 +499,12 @@
   gap: 10px;
 }
 
+.upload-title-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .upload-count-pill {
   display: inline-flex;
   align-items: center;
@@ -510,6 +516,14 @@
   font-size: 13px;
   font-weight: 500;
 }
+
+.upload-pill-button {
+  cursor: pointer;
+  color: #9a4300;
+  background: #ffe8d8;
+  border-color: #e59f73;
+}
+
 
 .upload-card p {
   margin: 0;
