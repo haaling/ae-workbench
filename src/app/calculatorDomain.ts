@@ -95,6 +95,7 @@ export type PersistedUploadBundle = {
   shopName: string
   subsidiary: string
   usdExchangeRate: string
+  workflowPeriod: string
 }
 
 export const UPLOAD_CACHE_STORAGE_KEY = 'performance_calculator_upload_cache_v1'

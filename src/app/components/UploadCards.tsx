@@ -24,7 +24,7 @@ export function OrdersUploadCard(props: OrdersUploadCardProps) {
         <span>1) 订单表上传</span>
         <span className="upload-count-pill">已上传 {files.length} 份</span>
       </h2>
-      <p>选择结算月份的所有订单导出。</p>
+      <p className="upload-card-subtitle">选择结算月份的所有订单导出。</p>
 
       <label className="file-input-label">
         <span>批量上传订单表（可多选）</span>
@@ -38,7 +38,7 @@ export function OrdersUploadCard(props: OrdersUploadCardProps) {
 
       <div className="uploaded-files-list">
         {files.length === 0 && (
-          <div className="meta-row">
+          <div className="meta-row upload-empty-state">
             <span className="meta-key">状态</span>
             <span className="meta-value">尚未上传订单文件</span>
           </div>
@@ -80,7 +80,7 @@ export function DetailUploadCard(props: DetailUploadCardProps) {
         <span>{title}</span>
         <span className="upload-count-pill">已上传 {files.length} 份</span>
       </h2>
-      <p>{description}</p>
+      <p className="upload-card-subtitle">{description}</p>
 
       <label className="file-input-label">
         <span>批量上传（可多选）</span>
@@ -94,7 +94,7 @@ export function DetailUploadCard(props: DetailUploadCardProps) {
 
       <div className="uploaded-files-list">
         {files.length === 0 && (
-          <div className="meta-row">
+          <div className="meta-row upload-empty-state">
             <span className="meta-key">状态</span>
             <span className="meta-value">{emptyText}</span>
           </div>
@@ -132,7 +132,7 @@ export function FreightUploadCard(props: FreightUploadCardProps) {
         <span>2) 金掌柜运费表</span>
         <span className="upload-count-pill">已上传 {files.length} 份</span>
       </h2>
-      <p>一次可上传多个运费文件，系统按交易单号字段匹配订单号并汇总。</p>
+      <p className="upload-card-subtitle">一次可上传多个运费文件，系统按交易单号字段匹配订单号并汇总。</p>
 
       <label className="file-input-label">
         <span>批量上传金掌柜运费表（可多选）</span>
@@ -146,7 +146,7 @@ export function FreightUploadCard(props: FreightUploadCardProps) {
 
       <div className="uploaded-files-list">
         {files.length === 0 && (
-          <div className="meta-row">
+          <div className="meta-row upload-empty-state">
             <span className="meta-key">状态</span>
             <span className="meta-value">尚未上传运费文件</span>
           </div>
@@ -188,7 +188,7 @@ export function SimpleUploadCard(props: SimpleUploadCardProps) {
         <span>{title}</span>
         <span className="upload-count-pill">已上传 {files.length} 份</span>
       </h2>
-      <p>{description}</p>
+      <p className="upload-card-subtitle">{description}</p>
 
       <label className="file-input-label">
         <span>批量上传（可多选）</span>
@@ -202,7 +202,7 @@ export function SimpleUploadCard(props: SimpleUploadCardProps) {
 
       <div className="uploaded-files-list">
         {files.length === 0 && (
-          <div className="meta-row">
+          <div className="meta-row upload-empty-state">
             <span className="meta-key">状态</span>
             <span className="meta-value">{emptyText}</span>
           </div>

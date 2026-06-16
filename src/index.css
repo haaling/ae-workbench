@@ -1,23 +1,31 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap');
 
 :root {
-  --bg: #f6f0e6;
-  --bg-grain: rgba(122, 91, 41, 0.03);
-  --title: #153047;
-  --text-strong: #274a62;
-  --text-muted: #5a778c;
-  --accent-dark: #a5451b;
-  --panel-soft: rgba(255, 253, 249, 0.82);
-  --panel-strong: rgba(255, 241, 214, 0.92);
-  --panel-border: rgba(151, 122, 79, 0.26);
-  --panel-border-strong: rgba(119, 86, 40, 0.35);
-  --info-color: #c63131;
+  --bg: #f5f1ec;
+  --title: #111111;
+  --text-strong: #111111;
+  --text-muted: #626260;
+  --text-subtle: #7b7b78;
+  --text-tertiary: #9c9fa5;
+  --accent-dark: #111111;
+  --fin-orange: #ff5600;
 
-  font-family: 'Manrope', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --panel-soft: #ffffff;
+  --panel-strong: #ffffff;
+  --panel-border: #d3cec6;
+  --panel-border-strong: #d3cec6;
+  --panel-soft-alt: #ebe7e1;
+  --info-color: #c41c1c;
+
+  --rounded-sm: 8px;
+  --rounded-md: 12px;
+  --rounded-lg: 16px;
+
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: var(--text-strong);
   font-size: 16px;
-  line-height: 1.45;
-  font-weight: 500;
+  line-height: 1.5;
+  font-weight: 400;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -30,22 +38,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 8% 12%, rgba(255, 209, 92, 0.18), transparent 35%),
-    radial-gradient(circle at 82% 10%, rgba(50, 145, 180, 0.2), transparent 40%),
-    linear-gradient(180deg, #f3e9d8 0%, #f6f0e6 45%, #f4efe7 100%);
-}
-
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(0deg, transparent 24%, var(--bg-grain) 25%, transparent 26%, transparent 74%, var(--bg-grain) 75%, transparent 76%),
-    linear-gradient(90deg, transparent 24%, var(--bg-grain) 25%, transparent 26%, transparent 74%, var(--bg-grain) 75%, transparent 76%);
-  background-size: 28px 28px;
-  opacity: 0.6;
+  background: var(--bg);
 }
 
 #root {
@@ -56,5 +49,6 @@ body::before {
 h1,
 h2,
 h3 {
-  font-family: 'Space Grotesk', 'PingFang SC', sans-serif;
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  letter-spacing: -0.02em;
 }
