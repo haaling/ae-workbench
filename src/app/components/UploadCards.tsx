@@ -130,10 +130,10 @@ export function FreightUploadCard(props: FreightUploadCardProps) {
   return (
     <section className="upload-card">
       <h2 className="upload-title-row">
-        <span>2) 金掌柜运费表</span>
+        <span>2) 金掌柜运费表（可选）</span>
         <span className="upload-count-pill">已上传 {files.length} 份</span>
       </h2>
-      <p className="upload-card-subtitle">一次可上传多个运费文件，系统按交易单号字段匹配订单号并汇总。</p>
+      <p className="upload-card-subtitle">可为空。一次可上传多个运费文件，系统按交易单号字段匹配订单号并汇总；未上传时按 0 处理。</p>
 
       <label className="file-input-label">
         <span>批量上传金掌柜运费表（可多选）</span>
@@ -149,7 +149,7 @@ export function FreightUploadCard(props: FreightUploadCardProps) {
         {files.length === 0 && (
           <div className="meta-row upload-empty-state">
             <span className="meta-key">状态</span>
-            <span className="meta-value">尚未上传运费文件</span>
+            <span className="meta-value">未上传运费文件（可不上传）</span>
           </div>
         )}
 

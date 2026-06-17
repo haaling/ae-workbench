@@ -67,6 +67,12 @@ export function createTenantService(tenantApiBaseUrl: string, authToken: string)
         body: JSON.stringify(body)
       })
     },
+    async resignEmployee(employeeId: string) {
+      return requestJson(`${normalizedBaseUrl}/employees/${employeeId}/resign`, {
+        method: 'PATCH',
+        headers: authHeaders()
+      })
+    },
     async getPerformanceFinalResults() {
       return requestJson(`${normalizedBaseUrl}/performance/final-results`, { headers: authHeaders() })
     },

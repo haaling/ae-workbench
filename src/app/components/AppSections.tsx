@@ -25,6 +25,7 @@ export type AdminManagedUser = {
   email: string
   role: string
   createdAt: string
+  isActive?: boolean
 }
 
 export type AdminBranchStore = {
@@ -41,7 +42,9 @@ export type AdminBranchStore = {
 
 export type AdminEmployee = {
   id: string
+  userId?: string
   name: string
+  subsidiary?: string
   employeeCode: string
   status: string
   createdAt: string
@@ -477,6 +480,7 @@ type EmployeeManagementSectionProps = {
     email?: string
     password: string
     role: string
+    subsidiary: string
     employeeCode: string
     notes: string
   }) => void
@@ -488,6 +492,7 @@ type EmployeeManagementSectionProps = {
     employeeIds: string[]
   }) => void
   onBindEmployeeStores: (input: { employeeId: string; storeIds: string[] }) => void
+  onResignEmployee: (employeeId: string) => void
   onUpdateCompanyProfile: (input: {
     companyName: string
     legalRepresentative: string
@@ -513,6 +518,7 @@ export function EmployeeManagementSection(props: EmployeeManagementSectionProps)
     onSaveSubsidiaries,
     onCreateStore,
     onBindEmployeeStores,
+    onResignEmployee,
     onUpdateCompanyProfile
   } = props
 
@@ -521,6 +527,7 @@ export function EmployeeManagementSection(props: EmployeeManagementSectionProps)
   const [staffEmail, setStaffEmail] = useState('')
   const [staffPassword, setStaffPassword] = useState('')
   const [staffRole, setStaffRole] = useState('employee')
+  const [staffSubsidiary, setStaffSubsidiary] = useState('总公司')
   const [staffEmployeeCode, setStaffEmployeeCode] = useState('')
   const [staffNotes, setStaffNotes] = useState('')
 
@@ -583,52 +590,76 @@ export function EmployeeManagementSection(props: EmployeeManagementSectionProps)
     }
   }, [bindEmployeeId, branchStores])
 
-  const accountUsernameByEmployeeId = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const employee of employees) {
-      const employeeName = normalizeCellValue(employee.name)
-      const employeeCode = normalizeCellValue(employee.employeeCode)
-      if (!employeeName && !employeeCode) {
-        continue
-      }
-
-      const exact = managedUsers.find((user) => {
-        const username = normalizeCellValue(user.username)
-        return (employeeName && username === employeeName) || (employeeCode && username === employeeCode)
-      })
-      if (exact) {
-        map.set(employee.id, normalizeCellValue(exact.username))
-        continue
-      }
-
-      const fuzzy = managedUsers.find((user) => {
-        const username = normalizeCellValue(user.username)
-        return (employeeName && username.includes(employeeName)) || (employeeCode && username.includes(employeeCode))
-      })
-      if (fuzzy) {
-        map.set(employee.id, normalizeCellValue(fuzzy.username))
-      }
-    }
-    return map
-  }, [employees, managedUsers])
-
   const formatEmployeeDisplayLabel = useCallback((employee: AdminEmployee): string => {
-    const account = normalizeCellValue(accountUsernameByEmployeeId.get(employee.id))
-    if (account) {
-      return `${employee.name}（${account}）`
-    }
-    if (employee.employeeCode) {
-      return `${employee.name}（${employee.employeeCode}）`
-    }
-    return employee.name
-  }, [accountUsernameByEmployeeId])
+    return normalizeCellValue(employee.name) || normalizeCellValue(employee.employeeCode) || '未设置姓名'
+  }, [])
 
   const employeeBindingOptions = useMemo(() => {
-    return employees.map((employee) => ({
+    const selectedSubsidiary = normalizeCellValue(storeSubsidiary) || '总公司'
+    const scopedEmployees = employees.filter((employee) => {
+      const employeeSubsidiary = normalizeCellValue(employee.subsidiary) || '总公司'
+      if (selectedSubsidiary === '总公司') {
+        return employeeSubsidiary === '总公司'
+      }
+      return employeeSubsidiary === selectedSubsidiary || employeeSubsidiary === '总公司'
+    })
+
+    const optionsFromEmployees = scopedEmployees.map((employee) => ({
       id: employee.id,
       label: formatEmployeeDisplayLabel(employee)
     }))
-  }, [employees, formatEmployeeDisplayLabel])
+
+    const linkedUserIds = new Set<string>()
+    for (const user of managedUsers) {
+      const username = normalizeCellValue(user.username)
+      if (!username) {
+        continue
+      }
+      const matched = scopedEmployees.some((employee) => {
+        const employeeName = normalizeCellValue(employee.name)
+        const employeeCode = normalizeCellValue(employee.employeeCode)
+        return (employeeName && employeeName === username) || (employeeCode && employeeCode === username)
+      })
+      if (matched) {
+        linkedUserIds.add(user.id)
+      }
+    }
+
+    const optionsFromUsers = managedUsers
+      .filter((user) => !linkedUserIds.has(user.id))
+      .map((user, index) => {
+        const username = normalizeCellValue(user.username)
+        const isLikelyAccount = /[@\d._-]/.test(username)
+        return {
+        id: `user:${user.id}`,
+        label: isLikelyAccount ? `未设置姓名（${index + 1}）` : (username || `未设置姓名（${index + 1}）`)
+      }
+      })
+
+    return [...optionsFromEmployees, ...optionsFromUsers]
+      .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN-u-co-pinyin', { sensitivity: 'base', numeric: true }))
+  }, [employees, managedUsers, formatEmployeeDisplayLabel, storeSubsidiary])
+
+  const userById = useMemo(() => {
+    return new Map(managedUsers.map((user) => [user.id, user]))
+  }, [managedUsers])
+
+  const employeeListRows = useMemo(() => {
+    return employees.map((employee) => {
+      let linkedUser = employee.userId ? userById.get(employee.userId) : undefined
+      if (!linkedUser) {
+        linkedUser = managedUsers.find((user) => {
+          const username = normalizeCellValue(user.username)
+          return username === normalizeCellValue(employee.name) || username === normalizeCellValue(employee.employeeCode)
+        })
+      }
+
+      return {
+        employee,
+        user: linkedUser || null
+      }
+    })
+  }, [employees, managedUsers, userById])
 
   const handleAddStaff = () => {
     onAddStaff({
@@ -637,6 +668,7 @@ export function EmployeeManagementSection(props: EmployeeManagementSectionProps)
       email: staffEmail,
       password: staffPassword,
       role: staffRole,
+      subsidiary: normalizeCellValue(staffSubsidiary) || '总公司',
       employeeCode: staffEmployeeCode,
       notes: staffNotes
     })
@@ -645,6 +677,7 @@ export function EmployeeManagementSection(props: EmployeeManagementSectionProps)
     setStaffEmail('')
     setStaffPassword('')
     setStaffRole('employee')
+    setStaffSubsidiary('总公司')
     setStaffEmployeeCode('')
     setStaffNotes('')
   }
@@ -783,12 +816,12 @@ export function EmployeeManagementSection(props: EmployeeManagementSectionProps)
                 <div className="control-row"><label>店铺名</label><input className="compact-input" value={storeName} onChange={(event) => setStoreName(event.target.value)} placeholder="例如：DXM官方店" /></div>
                 <div className="control-row"><label>营业执照名</label><input className="compact-input" value={businessLicenseName} onChange={(event) => setBusinessLicenseName(event.target.value)} placeholder="例如：深圳某某科技有限公司" /></div>
               </div>
-              <div className="control-row">
+              <div className="control-row control-row-stacked">
                 <label>分配员工（可多选）</label>
-                <div className="checkbox-grid">
+                <div className="checkbox-grid checkbox-grid-compact">
                   {employeeBindingOptions.length === 0 && <span className="hint-text">{isLoading ? '加载中...' : '暂无员工可分配'}</span>}
                   {employeeBindingOptions.map((employee) => (
-                    <label key={employee.id} className="checkbox-item">
+                    <label key={employee.id} className="checkbox-item checkbox-item-compact">
                       <input type="checkbox" checked={selectedEmployeeIds.includes(employee.id)} onChange={() => toggleEmployeeSelection(employee.id)} />
                       <span>{employee.label}</span>
                     </label>
@@ -826,6 +859,7 @@ export function EmployeeManagementSection(props: EmployeeManagementSectionProps)
                   <div className="control-row"><label>邮箱（可选）</label><input className="compact-input" value={staffEmail} onChange={(event) => setStaffEmail(event.target.value)} placeholder="不填将自动生成内部邮箱" /></div>
                   <div className="control-row"><label>初始密码</label><input className="compact-input" type="password" value={staffPassword} onChange={(event) => setStaffPassword(event.target.value)} placeholder="至少 6 位" /></div>
                   <div className="control-row"><label>身份</label><select className="compact-select" value={staffRole} onChange={(event) => setStaffRole(event.target.value)}><option value="company_admin">公司管理者</option><option value="finance">财务</option><option value="branch_manager">分公司总经理</option><option value="team_lead">组长</option><option value="employee">普通员工</option></select></div>
+                  <div className="control-row"><label>所属组织</label><select className="compact-select" value={staffSubsidiary} onChange={(event) => setStaffSubsidiary(event.target.value)}><option value="总公司">总公司</option>{companySubsidiaries.map((item) => (<option key={item} value={item}>{item}</option>))}</select></div>
                   <div className="control-row"><label>员工编号（可选）</label><input className="compact-input" value={staffEmployeeCode} onChange={(event) => setStaffEmployeeCode(event.target.value)} placeholder="例如：EMP-1024" /></div>
                   <div className="control-row"><label>备注（可选）</label><input className="compact-input" value={staffNotes} onChange={(event) => setStaffNotes(event.target.value)} placeholder="例如：负责俄罗斯站点" /></div>
                   <button type="button" className="ghost" onClick={handleAddStaff}>创建人员</button>
@@ -870,8 +904,26 @@ export function EmployeeManagementSection(props: EmployeeManagementSectionProps)
                 <section className="admin-card">
                   <h3>员工列表</h3>
                   <div className="admin-list">
-                    {managedUsers.length === 0 && <p className="hint-text">{isLoading ? '加载中...' : '暂无账号'}</p>}
-                    {managedUsers.map((user) => (<div key={user.id} className="meta-row admin-list-item"><span className="meta-key">{user.username}（{formatRoleLabel(user.role)}）</span><span className="meta-value">{user.email}</span></div>))}
+                    {employeeListRows.length === 0 && <p className="hint-text">{isLoading ? '加载中...' : '暂无员工'}</p>}
+                    {employeeListRows.map(({ employee, user }) => (
+                      <div key={employee.id} className="meta-row admin-list-item admin-list-item-with-action">
+                        <span className="meta-key">
+                          {employee.name || '未设置姓名'}
+                          {employee.employeeCode ? `（${employee.employeeCode}）` : ''}
+                          {` · ${normalizeCellValue(employee.subsidiary) || '总公司'}`}
+                          {' · '}
+                          {employee.status === 'inactive' ? '已离职' : user?.isActive === false ? '账号已停用' : formatRoleLabel(user?.role || 'employee')}
+                        </span>
+                        <span className="meta-value admin-list-item-actions">
+                          {user?.email || '未绑定账号'}
+                          {employee.status !== 'inactive' && (
+                            <button type="button" className="mini-danger" onClick={() => onResignEmployee(employee.id)}>
+                              标记离职
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </section>
               </>

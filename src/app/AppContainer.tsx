@@ -172,6 +172,21 @@ function App() {
   const [isTenantDataLoading, setIsTenantDataLoading] = useState(false)
   const [isStoreEmployeeOptionsLoading, setIsStoreEmployeeOptionsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [successToast, setSuccessToast] = useState('')
+
+  useEffect(() => {
+    if (!successToast) {
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      setSuccessToast('')
+    }, 2500)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [successToast])
 
   console.log('authUser:', authUser)
 
@@ -181,6 +196,12 @@ function App() {
     if (profileName) {
       return profileName
     }
+
+    const legalRepresentative = normalizeCellValue(adminCompanyProfile?.legalRepresentative)
+    if (legalRepresentative) {
+      return legalRepresentative
+    }
+
     if (!accountLabel) {
       return ''
     }
@@ -201,7 +222,7 @@ function App() {
         (employeeCode && (employeeCode.includes(accountLabel) || accountLabel.includes(employeeCode)))
     })
     return normalizeCellValue(fuzzy?.name)
-  }, [authUser, accountLabel, employees])
+  }, [authUser, accountLabel, employees, adminCompanyProfile])
 
   const totalCompanyLabel = useMemo(() => {
     const fromProfile = normalizeCellValue(adminCompanyProfile?.companyName)
@@ -223,34 +244,19 @@ function App() {
     return currentCompanyId ? '未设置公司名称' : '未绑定公司'
   }, [adminCompanyProfile, adminCompanies, authUser])
 
-  const branchCompanyLabel = useMemo(() => {
-    const profileSubsidiaries = Array.isArray(adminCompanyProfile?.subsidiaries)
-      ? adminCompanyProfile.subsidiaries.map((item) => normalizeCellValue(item)).filter(Boolean)
-      : []
-    const storeSubsidiaries = branchStores
-      .map((item) => normalizeCellValue(item.subsidiary))
-      .filter(Boolean)
-
-    const mergedSubsidiaries = Array.from(new Set([...profileSubsidiaries, ...storeSubsidiaries]))
-      .filter((item) => item !== '总公司')
-    return mergedSubsidiaries.length > 0
-      ? mergedSubsidiaries.join(' + ')
-      : '未设置分公司'
-  }, [adminCompanyProfile, branchStores])
-
   const displayPersonName = isGuestMode ? 'guest' : personNameLabel || '未设置'
   const displayAccountName = isGuestMode ? 'guest' : accountLabel || '未设置'
   const displayTotalCompany = isGuestMode ? '本地模式' : totalCompanyLabel
-  const displayBranchCompany = isGuestMode ? '本地模式' : branchCompanyLabel
+  const actualRole = isGuestMode ? '' : normalizeCellValue(authUser?.role)
   const displayRole = isGuestMode
     ? '本地模式用户'
-    : roleLabelMap[normalizeCellValue(authUser?.role)] || '未设置身份'
-  const isAdminUser = !isGuestMode && /(admin|管理员)/i.test(displayRole)
-  const canAccessEmployeeManagement = !isGuestMode && displayRole === 'company_admin'
-  const canAccessAdminPage = !isGuestMode && displayRole === 'super_admin'
-  const canAccessMyPerformance = !isGuestMode && ['employee', 'branch_manager', 'team_lead'].includes(displayRole)
-  const canAccessCalculator = isGuestMode || displayRole !== 'employee'
-  const canOperateWorkflow = ['super_admin', 'company_admin', 'finance'].includes(displayRole)
+    : roleLabelMap[actualRole] || actualRole || '未设置身份'
+  const isAdminUser = !isGuestMode && ['super_admin', 'company_admin'].includes(actualRole)
+  const canAccessEmployeeManagement = !isGuestMode && actualRole === 'company_admin'
+  const canAccessAdminPage = !isGuestMode && actualRole === 'super_admin'
+  const canAccessMyPerformance = !isGuestMode && ['employee', 'branch_manager', 'team_lead'].includes(actualRole)
+  const canAccessCalculator = isGuestMode || actualRole !== 'employee'
+  const canOperateWorkflow = ['super_admin', 'company_admin', 'finance'].includes(actualRole)
   const canAccessPerformanceManagement = !isGuestMode && canOperateWorkflow
   const [activeView, setActiveView] = useState<AppView>('calculator')
   const [performanceListTab, setPerformanceListTab] = useState<'current' | 'history'>('current')
@@ -344,7 +350,8 @@ function App() {
     username: normalizeCellValue(user.username),
     email: normalizeCellValue(user.email),
     role: normalizeCellValue(user.role),
-    createdAt: normalizeCellValue(user.createdAt)
+    createdAt: normalizeCellValue(user.createdAt),
+    isActive: Boolean(user.isActive)
   })
 
   const mapBranchStore = (store: Record<string, unknown>): AdminBranchStore => {
@@ -382,7 +389,9 @@ function App() {
 
   const mapEmployee = (employee: Record<string, unknown>): AdminEmployee => ({
     id: normalizeCellValue(employee._id || employee.id),
+    userId: normalizeCellValue(employee.userId),
     name: normalizeCellValue(employee.name),
+    subsidiary: normalizeCellValue(employee.subsidiary) || '总公司',
     employeeCode: normalizeCellValue(employee.employeeCode),
     status: normalizeCellValue(employee.status) || 'active',
     createdAt: normalizeCellValue(employee.createdAt)
@@ -580,6 +589,55 @@ function App() {
     tenantService
   ])
 
+  useEffect(() => {
+    const inManagementView = resolvedActiveView === 'admin' || resolvedActiveView === 'employee'
+    if (!authToken || isGuestMode || !isAdminUser || inManagementView) {
+      return
+    }
+    if (adminCompanyProfile || adminCompanies.length > 0) {
+      return
+    }
+
+    let cancelled = false
+
+    const loadCompanyForSidebar = async () => {
+      try {
+        const companiesPayload = await tenantService.getCompanies()
+        if (cancelled) {
+          return
+        }
+
+        const companies = (companiesPayload.data as { companies?: Array<Record<string, unknown>> } | undefined)?.companies || []
+        const currentCompanyId = normalizeCellValue(authUser?.companyId)
+        const selectedCompany =
+          companies.find((item) => normalizeCellValue(item._id) === currentCompanyId) ||
+          companies[0] ||
+          null
+
+        setAdminCompanies(companies.map(mapCompanyProfile))
+        setAdminCompanyProfile(selectedCompany ? mapCompanyProfile(selectedCompany) : null)
+      } catch {
+        // Keep sidebar fallback text if company list cannot be loaded.
+      }
+    }
+
+    void loadCompanyForSidebar()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    authToken,
+    isGuestMode,
+    isAdminUser,
+    resolvedActiveView,
+    adminCompanyProfile,
+    adminCompanies.length,
+    tenantService,
+    authUser?.companyId,
+    mapCompanyProfile
+  ])
+
   async function handleCreateCompanyProfile(input: {
     companyName: string
     legalRepresentative: string
@@ -648,10 +706,6 @@ function App() {
       setErrorMessage('添加用户失败：初始密码至少 6 位。')
       return
     }
-    if (displayRole === 'super_admin' && !adminCompanyProfile?.id) {
-      setErrorMessage('请先创建或选择公司信息，再添加用户。')
-      return
-    }
 
     try {
       const body: Record<string, unknown> = {
@@ -660,7 +714,7 @@ function App() {
         password,
         role
       }
-      if (displayRole === 'super_admin' && adminCompanyProfile?.id) {
+      if (actualRole === 'super_admin' && adminCompanyProfile?.id) {
         body.companyId = adminCompanyProfile.id
       }
 
@@ -677,9 +731,10 @@ function App() {
         const employeeBody: Record<string, unknown> = {
           name: username,
           employeeCode: '',
-          notes: 'auto-created-from-add-user'
+          notes: 'auto-created-from-add-user',
+          userId: normalizeCellValue(user._id || user.id)
         }
-        if (displayRole === 'super_admin' && adminCompanyProfile?.id) {
+        if (actualRole === 'super_admin' && adminCompanyProfile?.id) {
           employeeBody.companyId = adminCompanyProfile.id
         }
 
@@ -709,7 +764,7 @@ function App() {
       setErrorMessage('分公司、店铺名、营业执照编号为必填项。')
       return
     }
-    if (displayRole === 'super_admin' && !adminCompanyProfile?.id) {
+    if (actualRole === 'super_admin' && !adminCompanyProfile?.id) {
       setErrorMessage('请先创建或选择公司信息，再添加店铺。')
       return
     }
@@ -723,7 +778,7 @@ function App() {
           businessLicenseName: businessLicense
         }
       }
-      if (displayRole === 'super_admin' && adminCompanyProfile?.id) {
+      if (actualRole === 'super_admin' && adminCompanyProfile?.id) {
         body.companyId = adminCompanyProfile.id
       }
 
@@ -795,7 +850,7 @@ function App() {
       return
     }
 
-    if (displayRole === 'super_admin' && !adminCompanyProfile?.id) {
+    if (actualRole === 'super_admin' && !adminCompanyProfile?.id) {
       setErrorMessage('请先创建或选择公司信息，再添加店铺。')
       return
     }
@@ -809,7 +864,7 @@ function App() {
           businessLicenseName
         }
       }
-      if (displayRole === 'super_admin' && adminCompanyProfile?.id) {
+      if (actualRole === 'super_admin' && adminCompanyProfile?.id) {
         body.companyId = adminCompanyProfile.id
       }
 
@@ -912,7 +967,8 @@ function App() {
         const employeePayload = await tenantService.createEmployee({
           name: normalizeCellValue(matchedUser.username),
           employeeCode: '',
-          notes: 'auto-created-from-user-binding'
+            notes: 'auto-created-from-user-binding',
+            userId
         })
         const employee = (employeePayload.data as { employee?: Record<string, unknown> } | undefined)?.employee
         const nextEmployeeId = normalizeCellValue(employee?._id || employee?.id)
@@ -968,6 +1024,7 @@ function App() {
     email?: string
     password: string
     role: string
+    subsidiary: string
     employeeCode: string
     notes: string
   }) {
@@ -976,6 +1033,7 @@ function App() {
     const email = normalizeCellValue(input.email)
     const password = normalizeCellValue(input.password)
     const role = normalizeCellValue(input.role)
+    const subsidiary = normalizeCellValue(input.subsidiary) || '总公司'
     const employeeCode = normalizeCellValue(input.employeeCode)
     const notes = normalizeCellValue(input.notes)
 
@@ -985,10 +1043,6 @@ function App() {
     }
     if (password.length < 6) {
       setErrorMessage('创建人员失败：初始密码至少 6 位。')
-      return
-    }
-    if (displayRole === 'super_admin' && !adminCompanyProfile?.id) {
-      setErrorMessage('请先创建或选择公司信息，再创建人员。')
       return
     }
 
@@ -1001,7 +1055,7 @@ function App() {
       if (email) {
         userBody.email = email
       }
-      if (displayRole === 'super_admin' && adminCompanyProfile?.id) {
+      if (actualRole === 'super_admin' && adminCompanyProfile?.id) {
         userBody.companyId = adminCompanyProfile.id
       }
 
@@ -1014,10 +1068,12 @@ function App() {
 
       const employeeBody: Record<string, unknown> = {
         name,
+        subsidiary,
         employeeCode,
-        notes
+        notes,
+        userId: normalizeCellValue(user._id || user.id)
       }
-      if (displayRole === 'super_admin' && adminCompanyProfile?.id) {
+      if (actualRole === 'super_admin' && adminCompanyProfile?.id) {
         employeeBody.companyId = adminCompanyProfile.id
       }
 
@@ -1029,9 +1085,41 @@ function App() {
 
       setEmployees((prev) => [mapEmployee(employee), ...prev])
       await refreshEmployeeStoreData()
-      setErrorMessage('人员创建成功（账号+档案）。')
+      setSuccessToast('新增员工成功（账号+档案）。')
     } catch (error) {
       setErrorMessage(`创建人员失败：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }
+
+  async function handleResignEmployee(employeeId: string) {
+    const normalizedEmployeeId = normalizeCellValue(employeeId)
+    if (!normalizedEmployeeId) {
+      return
+    }
+
+    if (!window.confirm('确认将该员工标记为已离职，并停用其账号吗？')) {
+      return
+    }
+
+    try {
+      const payload = await tenantService.resignEmployee(normalizedEmployeeId)
+      const employee = (payload.data as { employee?: Record<string, unknown> } | undefined)?.employee
+      const user = (payload.data as { user?: Record<string, unknown> | null } | undefined)?.user
+
+      if (employee) {
+        const mappedEmployee = mapEmployee(employee)
+        setEmployees((prev) => prev.map((item) => item.id === mappedEmployee.id ? mappedEmployee : item))
+      }
+
+      if (user) {
+        const mappedUser = mapManagedUser(user)
+        setManagedUsers((prev) => prev.map((item) => item.id === mappedUser.id ? mappedUser : item))
+      }
+
+      await refreshEmployeeStoreData()
+      setSuccessToast(user ? '员工已标记离职，账号已停用。' : '员工已标记离职。')
+    } catch (error) {
+      setErrorMessage(`员工离职操作失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
   }
 
@@ -1050,7 +1138,7 @@ function App() {
     const legalRepresentative = normalizeCellValue(input.legalRepresentative)
     const expireDate = normalizeCellValue(input.expireDate)
     const maxUsers = Number(input.maxUsers)
-    const canManageCompanyPolicy = displayRole === 'super_admin'
+    const canManageCompanyPolicy = actualRole === 'super_admin'
 
     if (!companyName) {
       setErrorMessage('公司名称不能为空。')
@@ -1152,7 +1240,7 @@ function App() {
   const [uploadCacheReady] = useState(true)
   const reviewerCacheCompanyId = normalizeCellValue(authUser?.companyId || authUser?.company?.id)
 
-  const isEmployeeReviewOnly = displayRole === 'employee'
+  const isEmployeeReviewOnly = actualRole === 'employee'
   const workflowStatusLabelMap: Record<string, string> = {
     draft: '草稿',
     pushed: '待员工核对',
@@ -2253,7 +2341,7 @@ function App() {
             <div className="workspace-brand">
           <div className="workspace-user-box">
           <div className="header-user-row">
-            <span>人名</span>
+            <span>用户</span>
             <strong>{displayPersonName}</strong>
           </div>
           <div className="header-user-row">
@@ -2263,10 +2351,6 @@ function App() {
           <div className="header-user-row">
             <span>总公司</span>
             <strong>{displayTotalCompany}</strong>
-          </div>
-          <div className="header-user-row">
-            <span>分公司</span>
-            <strong>{displayBranchCompany}</strong>
           </div>
           <div className="header-user-row">
             <span>身份</span>
@@ -2424,6 +2508,12 @@ function App() {
           </div>
         )}
 
+        {successToast && (
+          <div className="success-toast" role="status" aria-live="polite">
+            {successToast}
+          </div>
+        )}
+
         {resolvedActiveView === 'admin' && canAccessAdminPage && (
           <section className="upload-card onboarding-shell">
             <h2>超管页面</h2>
@@ -2431,7 +2521,7 @@ function App() {
             <AdminManagementSection
               companyProfile={adminCompanyProfile}
               companyList={adminCompanies}
-              canCreateCompany={displayRole === 'super_admin'}
+              canCreateCompany={actualRole === 'super_admin'}
               managedUsers={managedUsers}
               branchStores={branchStores}
               isLoading={isTenantDataLoading}
@@ -2458,6 +2548,7 @@ function App() {
             onSaveSubsidiaries={handleSaveSubsidiaries}
             onCreateStore={handleCreateStoreWithAssignments}
             onBindEmployeeStores={handleBindEmployeeStores}
+            onResignEmployee={handleResignEmployee}
             onUpdateCompanyProfile={handleUpdateCompanyProfile}
           />
         )}

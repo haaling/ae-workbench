@@ -397,6 +397,7 @@
   padding: 12px;
   display: grid;
   gap: 10px;
+  margin-top: 12px;
 
   button {
     width: fit-content;
@@ -428,6 +429,12 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+
+  .control-row {
+    label {
+      font-size: 15px;
+    }
+  }
 
   &.common-info {
     flex-direction: row;  
@@ -472,6 +479,18 @@
   border-radius: var(--rounded-sm);
   background: #fcfbf9;
   padding: 8px 10px;
+}
+
+.admin-list-item-with-action {
+  align-items: center;
+}
+
+.admin-list-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .upload-card {
@@ -611,7 +630,7 @@
   border: 1px solid var(--panel-border-strong);
   background: var(--panel-soft);
   border-radius: var(--rounded-sm);
-  height: 60px;
+  height: 40px;
   min-height: var(--upload-control-height);
   padding: 0 12px;
   font: inherit;
@@ -787,6 +806,17 @@
   width: 100%;
 }
 
+.control-row-stacked {
+  align-items: stretch;
+  flex-direction: column;
+  height: auto;
+  gap: 8px;
+}
+
+.control-row-stacked .checkbox-grid {
+  width: 100%;
+}
+
 .auth-form {
   display: flex;
   flex-direction: column;
@@ -936,6 +966,19 @@
   font-size: 13px;
 }
 
+.checkbox-grid-compact {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  max-height: 220px;
+  gap: 6px 8px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.checkbox-item-compact {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
 .hint-text {
   color: var(--text-muted);
   font-size: 14px;
@@ -1067,6 +1110,21 @@
   color: #8f2020;
   font: inherit;
   cursor: pointer;
+}
+
+.success-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  max-width: min(420px, calc(100vw - 32px));
+  border: 1px solid #9fd0a1;
+  border-radius: var(--rounded-sm);
+  background: #edf9ee;
+  color: #1f6d2a;
+  padding: 10px 12px;
+  font-size: 14px;
+  box-shadow: 0 10px 24px rgba(14, 50, 20, 0.18);
+  z-index: 1300;
 }
 
 .result-panel {
@@ -1301,6 +1359,10 @@
     grid-template-columns: 1fr;
   }
 
+  .checkbox-grid-compact {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .grid-layout {
     grid-template-columns: 1fr;
   }
@@ -1329,6 +1391,18 @@
 
   .action-status-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1600px) {
+  .checkbox-grid-compact {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1320px) {
+  .checkbox-grid-compact {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 
