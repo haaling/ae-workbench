@@ -27,10 +27,10 @@ export function buildActualFreightRows(input: {
     .map((row) => {
       const contextText = Object.values(row).map((value) => normalizeCellValue(value)).join(' ')
       const orderNo = findFreightOrderNoInRow(row, freightOrderColumn, orderIds)
-      const cny = convertFreightToMovement(row[effectiveFreightAmountCnyColumn], contextText)
-      const usd = convertFreightToMovement(row[effectiveFreightAmountUsdColumn], contextText)
+      const cny = convertFreightToMovement(row[effectiveFreightAmountCnyColumn], contextText, effectiveFreightAmountCnyColumn)
+      const usd = convertFreightToMovement(row[effectiveFreightAmountUsdColumn], contextText, effectiveFreightAmountUsdColumn)
       const fallback = Math.abs(cny) < 0.000001 && Math.abs(usd) < 0.000001
-        ? convertFreightToMovement(findFreightFallbackAmount(row), contextText)
+        ? convertFreightToMovement(findFreightFallbackAmount(row), contextText, 'fallback')
         : 0
 
       return {

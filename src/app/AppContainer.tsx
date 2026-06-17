@@ -1574,16 +1574,51 @@ function App() {
     freightHeaders,
     DEFAULT_FREIGHT_WAYBILL_HINTS
   )
-  const effectiveFreightAmountCnyColumn = resolveColumnSelection(
+  const effectiveFreightAmountCnyColumn = resolveSafeFreightAmountColumnSelection(
     freightAmountCnyColumn,
     freightHeaders,
     DEFAULT_FREIGHT_CNY_HINTS
   )
-  const effectiveFreightAmountUsdColumn = resolveColumnSelection(
+  const effectiveFreightAmountUsdColumn = resolveSafeFreightAmountColumnSelection(
     freightAmountUsdColumn,
     freightHeaders,
     DEFAULT_FREIGHT_USD_HINTS
   )
+
+  function isLikelyOrderLikeHeader(column: string): boolean {
+    const text = normalizeCellValue(column).toLowerCase()
+    if (!text) {
+      return false
+    }
+
+    return [
+      '订单号',
+      '订单编号',
+      '订单id',
+      '交易单号',
+      '交易订单号',
+      '商家订单号',
+      '客户订单号',
+      '平台订单号',
+      'order',
+      'orderid',
+      'trade',
+      'waybill'
+    ].some((hint) => text.includes(hint))
+  }
+
+  function resolveSafeFreightAmountColumnSelection(selected: string, headers: string[], hints: string[]): string {
+    if (selected && headers.includes(selected) && !isLikelyOrderLikeHeader(selected)) {
+      return selected
+    }
+
+    const picked = pickOptionalColumn(
+      headers.filter((header) => !isLikelyOrderLikeHeader(header)),
+      hints
+    )
+
+    return picked || ''
+  }
 
   function scoreDecodedCsvText(text: string): number {
     const sample = text.slice(0, 4000)

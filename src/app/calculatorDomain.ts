@@ -236,14 +236,11 @@ export function normalizeOrderNo(value: unknown): string {
   const digits = `${intPartRaw}${fracPartRaw}`.replace(/^0+/, '') || '0'
   const decimalPos = intPartRaw.length + exponent
 
-  let expanded = ''
-  if (decimalPos <= 0) {
-    expanded = `0.${'0'.repeat(Math.abs(decimalPos))}${digits}`
-  } else if (decimalPos >= digits.length) {
-    expanded = `${digits}${'0'.repeat(decimalPos - digits.length)}`
-  } else {
-    expanded = `${digits.slice(0, decimalPos)}.${digits.slice(decimalPos)}`
-  }
+  const expanded = decimalPos <= 0
+    ? `0.${'0'.repeat(Math.abs(decimalPos))}${digits}`
+    : decimalPos >= digits.length
+      ? `${digits}${'0'.repeat(decimalPos - digits.length)}`
+      : `${digits.slice(0, decimalPos)}.${digits.slice(decimalPos)}`
 
   const normalized = expanded
     .replace(/\.0+$/, '')
@@ -264,9 +261,40 @@ export function toNumericValue(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-export function convertFreightToMovement(value: unknown, context: unknown = ''): number {
+function looksLikeOrderLikeLongNumber(value: unknown): boolean {
+  const text = normalizeCellValue(value).replace(/[,，\s]/g, '')
+  return /^\d{14,}(?:\.0+)?$/.test(text)
+}
+
+function looksLikeOrderLikeSourceLabel(sourceLabel: unknown): boolean {
+  const text = normalizeCellValue(sourceLabel).toLowerCase()
+  if (!text) {
+    return false
+  }
+
+  return [
+    '订单号',
+    '订单编号',
+    '订单id',
+    '交易单号',
+    '交易订单号',
+    '商家订单号',
+    '客户订单号',
+    '平台订单号',
+    'order',
+    'orderid',
+    'trade',
+    'waybill'
+  ].some((hint) => text.includes(hint))
+}
+
+export function convertFreightToMovement(value: unknown, context: unknown = '', sourceLabel: unknown = ''): number {
   const amount = toNumericValue(value)
   if (!amount) {
+    return 0
+  }
+
+  if (looksLikeOrderLikeLongNumber(value) || looksLikeOrderLikeSourceLabel(sourceLabel)) {
     return 0
   }
 
