@@ -1257,6 +1257,13 @@ function App() {
       return ''
     }
     const employee = employees.find((item) => item.id === employeeId)
+    const linkedUserId = normalizeCellValue(employee?.userId)
+    if (linkedUserId) {
+      const linkedReviewer = workflowReviewers.find((item) => item.id === linkedUserId)
+      if (linkedReviewer) {
+        return linkedReviewer.id
+      }
+    }
     const employeeName = normalizeCellValue(employee?.name)
     const employeeCode = normalizeCellValue(employee?.employeeCode)
     if (!employeeName && !employeeCode) {
@@ -1283,6 +1290,13 @@ function App() {
       return ''
     }
     const employee = employees.find((item) => item.id === employeeId)
+    const linkedUserId = normalizeCellValue(employee?.userId)
+    if (linkedUserId) {
+      const linkedReviewer = reviewers.find((item) => item.id === linkedUserId)
+      if (linkedReviewer) {
+        return linkedReviewer.id
+      }
+    }
     const employeeName = normalizeCellValue(employee?.name)
     const employeeCode = normalizeCellValue(employee?.employeeCode)
     if (!employeeName && !employeeCode) {
@@ -1357,8 +1371,8 @@ function App() {
           const usersPayload = await tenantService.getUsers()
           const users = (usersPayload.data as { users?: Array<Record<string, unknown>> } | undefined)?.users || []
           reviewerRows = users.filter((user) => {
-            const role = normalizeCellValue(user.role)
-            return ['employee', 'team_lead', 'branch_manager', 'company_admin', 'general_manager', 'manager', 'gm'].includes(role)
+            const isActive = Boolean(user.isActive)
+            return isActive
           })
         }
 
@@ -2032,23 +2046,46 @@ function App() {
       setErrorMessage('请先上传财务核对后的绩效文件。')
       return
     }
-    const boundEmployeeIds = branchStores.find((item) => item.id === shopId)?.employeeIds || []
-    const candidateEmployeeIds = [selectedEmployeeId, ...boundEmployeeIds].filter(Boolean)
-    const uniqueCandidateEmployeeIds = Array.from(new Set(candidateEmployeeIds))
-
     let resolvedReviewerUserId = selectedReviewerUserId
     if (!resolvedReviewerUserId) {
-      for (const employeeId of uniqueCandidateEmployeeIds) {
-        const matched = pickDefaultReviewerByEmployee(employeeId)
-        if (matched) {
-          resolvedReviewerUserId = matched
-          break
+      const selectedId = normalizeCellValue(selectedEmployeeId)
+      if (selectedId) {
+        resolvedReviewerUserId = pickDefaultReviewerByEmployee(selectedId)
+        if (!resolvedReviewerUserId) {
+          const selectedEmployee = employees.find((item) => item.id === selectedId)
+          const displayName = normalizeCellValue(selectedEmployee?.name) || normalizeCellValue(selectedEmployee?.employeeCode) || '当前选择员工'
+          const linkedUserId = normalizeCellValue(selectedEmployee?.userId)
+
+          let reason = '该员工未匹配到可用账号。'
+          if (!linkedUserId) {
+            reason = '该员工档案未关联账号（employee.userId 为空）。'
+          } else {
+            const linkedUser = managedUsers.find((item) => item.id === linkedUserId)
+            if (!linkedUser) {
+              reason = '该员工关联的账号不存在或不在当前公司。'
+            } else if (linkedUser.isActive === false) {
+              reason = '该员工关联账号已停用。'
+                      }
+          }
+
+          setErrorMessage(`你已选择员工“${displayName}”，但无法推送核对：${reason}`)
+          return
+        }
+      } else {
+        const boundEmployeeIds = branchStores.find((item) => item.id === shopId)?.employeeIds || []
+        const uniqueCandidateEmployeeIds = Array.from(new Set(boundEmployeeIds.filter(Boolean)))
+        for (const employeeId of uniqueCandidateEmployeeIds) {
+          const matched = pickDefaultReviewerByEmployee(employeeId)
+          if (matched) {
+            resolvedReviewerUserId = matched
+            break
+          }
         }
       }
     }
 
     if (!resolvedReviewerUserId) {
-      setErrorMessage('未匹配到可核对员工账号，请检查店铺绑定员工与员工账号名称是否一致。')
+      setErrorMessage('未匹配到可核对员工账号，请检查员工是否已关联启用中的账号（employee.userId），或姓名/编号与账号名是否可匹配。')
       return
     }
 
