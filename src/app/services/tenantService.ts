@@ -30,6 +30,19 @@ export function createTenantService(tenantApiBaseUrl: string, authToken: string)
         body: JSON.stringify({ subsidiaries })
       })
     },
+    async patchCompanySubsidiary(companyId: string, subsidiaryName: string, body: { name: string; remark?: string }) {
+      return requestJson(`${normalizedBaseUrl}/companies/${companyId}/subsidiaries/${encodeURIComponent(subsidiaryName)}`, {
+        method: 'PATCH',
+        headers: authHeaders(),
+        body: JSON.stringify(body)
+      })
+    },
+    async invalidateCompanySubsidiary(companyId: string, subsidiaryName: string) {
+      return requestJson(`${normalizedBaseUrl}/companies/${companyId}/subsidiaries/${encodeURIComponent(subsidiaryName)}/invalidate`, {
+        method: 'PATCH',
+        headers: authHeaders()
+      })
+    },
     async getUsers() {
       return requestJson(`${normalizedBaseUrl}/users`, { headers: authHeaders() })
     },

@@ -188,7 +188,7 @@ export function hasKeyword(text: string, keywords: string[]): boolean {
 export function sortRefundTypesForDisplay(types: string[]): string[] {
   const deduped = Array.from(new Set(types.map((item) => normalizeCellValue(item)).filter(Boolean)))
   const isCancel = (text: string) => text.includes('放款前退款>取消订单退款')
-  const isDispute = (text: string) => text.includes('有纠纷订单退款')
+  const isDispute = (text: string) => text.includes('纠纷订单退款')
 
   const normal = deduped.filter((item) => !isDispute(item) && !isCancel(item))
   const dispute = deduped.filter((item) => isDispute(item))
@@ -414,6 +414,16 @@ export function toIncomeDetailMovementByFlowType(columnName: string, value: unkn
   return toIncomeDetailMovement(columnName, value)
 }
 
+export function isRefundTypeExcludedFromExpense(refundType: unknown): boolean {
+  const typeText = normalizeCellValue(refundType).toLowerCase()
+  return (
+    typeText.includes('客户取消') ||
+    typeText.includes('买家取消') ||
+    typeText.includes('取消订单') ||
+    typeText.includes('纠纷订单')
+  )
+}
+
 export function toRefundDetailMovement(columnName: string, value: unknown, refundType: unknown): number {
   const amount = toNumericValue(value)
   if (!amount) {
@@ -422,11 +432,7 @@ export function toRefundDetailMovement(columnName: string, value: unknown, refun
 
   const abs = Math.abs(amount)
   const typeText = normalizeCellValue(refundType).toLowerCase()
-  if (
-    typeText.includes('客户取消') ||
-    typeText.includes('买家取消') ||
-    typeText.includes('取消订单')
-  ) {
+  if (isRefundTypeExcludedFromExpense(typeText)) {
     return 0
   }
 

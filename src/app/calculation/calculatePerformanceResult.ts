@@ -88,21 +88,6 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
   } = input
 
   const DEBUG_CALC = true
-  const hasNonRuHint = (text: string): boolean => {
-    const value = normalizeCellValue(text).toLowerCase()
-    return value.includes('非俄罗斯') || value.includes('aeg') || value.includes('non-ru') || value.includes('nonru')
-  }
-
-  const hasRuHint = (text: string): boolean => {
-    const value = normalizeCellValue(text).toLowerCase()
-    if (!value) {
-      return false
-    }
-    if (value.includes('非俄罗斯') || value.includes('aeg') || value.includes('non-ru') || value.includes('nonru')) {
-      return false
-    }
-    return value.includes('俄罗斯') || value.includes('aer') || value.includes(' ru ')
-  }
   const orderRows = buildOrderRows(ordersSheetRows, ordersIdColumn)
   const orderIds = buildOrderIds(orderRows, ordersIdColumn)
 
@@ -585,8 +570,8 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
       线上运费: 0,
       线下运费: 0,
       采购费用: 0,
-      __regionNonRuEvidence: 0,
-      __regionRuEvidence: 0,
+      __incomeStatementRowCount: 0,
+      __incomeRowCount: 0,
       __refundRowCount: 0,
       支付宝是否开发票: '',
       最终收入_未扣运费: 0,
@@ -620,16 +605,9 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     }
 
     if (isOrderIncomeSource(source)) {
-      const regionContext = [
-        normalizeCellValue(row.收支来源文件),
-        normalizeCellValue(row.收支来源Sheet),
-        normalizeCellValue(row.费用项),
-        type
-      ].join(' ')
-      if (hasNonRuHint(regionContext)) {
-        current.__regionNonRuEvidence = toNumericValue(current.__regionNonRuEvidence) + 1
-      } else if (hasRuHint(regionContext)) {
-        current.__regionRuEvidence = toNumericValue(current.__regionRuEvidence) + 1
+      current.__incomeRowCount = toNumericValue(current.__incomeRowCount) + 1
+      if (source === '订单收支明细表') {
+        current.__incomeStatementRowCount = toNumericValue(current.__incomeStatementRowCount) + 1
       }
 
       current.订单明细_净收支合计 = normalizeMoney(toNumericValue(current.订单明细_净收支合计) + amount)
@@ -759,6 +737,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         platformSplitAmount +
         platformSplitReturnAmount
     )
+    const incomeLogisticsExpense = normalizeMoney(current.收支表_支出物流费用)
     const hasNetPayoutInputs =
       Math.abs(netPayoutBaseAmount) > 0.000001 ||
       Math.abs(inSaleRefundAmount) > 0.000001 ||
@@ -768,35 +747,36 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     const incomeFromOrderDetail = hasNetPayoutInputs
       ? netPayoutIncome
       : normalizeMoney(current.订单明细_净收支合计)
+    const incomeFromIncomeStatement = normalizeMoney(
+      toNumericValue(current.订单明细_净收支合计) + incomeLogisticsExpense
+    )
     current.订单明细_净放款基准金额 = netPayoutBaseAmount
     current.订单明细_净放款口径收入 = netPayoutIncome
     const incomeFromRefundDetail = normalizeMoney(
       toNumericValue(current.放退款_金额项合计) - toNumericValue(current.放退款_其他费用合计)
     )
-    const incomeFromOrderDetailExcludingLogistics = normalizeMoney(
-      incomeFromOrderDetail + toNumericValue(current.收支表_支出物流费用)
-    )
+    const incomeFromOrderDetailExcludingLogistics = incomeFromIncomeStatement
     const incomeDiff = normalizeMoney(incomeFromOrderDetailExcludingLogistics - incomeFromRefundDetail)
     const purchaseExpense = normalizeMoney(current.采购费用)
-    const incomeLogisticsExpense = normalizeMoney(current.收支表_支出物流费用)
     const jzgFreightExpense = normalizeMoney(current.金掌柜物流费支出)
     const offlineFreightExpense = normalizeMoney(current.线下运费)
     const logisticsExpenseTotal = normalizeMoney(incomeLogisticsExpense + jzgFreightExpense + offlineFreightExpense)
     current.物流支出总和 = logisticsExpenseTotal
     const totalFreight = logisticsExpenseTotal
-    const nonRuEvidence = toNumericValue(current.__regionNonRuEvidence)
-    const ruEvidence = toNumericValue(current.__regionRuEvidence)
+    const hasIncomeStatementRows = toNumericValue(current.__incomeStatementRowCount) > 0
     const hasRefundRows = toNumericValue(current.__refundRowCount) > 0
     const incomeBasis =
-      nonRuEvidence > 0 && ruEvidence === 0
+      hasIncomeStatementRows
         ? 'income'
-        : ruEvidence > 0 && nonRuEvidence === 0
+        : hasRefundRows
           ? 'refund'
-          : hasRefundRows
-            ? 'refund'
-            : 'income'
+          : 'order'
 
-    const primaryIncomeBeforeFreight = incomeBasis === 'income' ? incomeFromOrderDetail : incomeFromRefundDetail
+    const primaryIncomeBeforeFreight = incomeBasis === 'income'
+      ? incomeFromIncomeStatement
+      : incomeBasis === 'refund'
+        ? incomeFromRefundDetail
+        : incomeFromOrderDetail
     const expectedFromIncomeAndFreight = normalizeMoney(
       primaryIncomeBeforeFreight - logisticsExpenseTotal
     )
@@ -825,7 +805,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
           ? '基本对上'
           : '不一致'
 
-    current.收入_按订单明细 = incomeFromOrderDetail
+    current.收入_按订单明细 = hasIncomeStatementRows ? incomeFromIncomeStatement : incomeFromOrderDetail
     current.收入_按放退款明细 = incomeFromRefundDetail
     current.收支总和_不含物流费用 = incomeFromOrderDetailExcludingLogistics
     current.差异_收支不含物流减退放款 = incomeDiff

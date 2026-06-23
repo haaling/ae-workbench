@@ -6,6 +6,7 @@ import {
   getSelectedSheet,
   hasKeyword,
   isExcludedIncomeDetailColumn,
+  isRefundTypeExcludedFromExpense,
   normalizeCellValue,
   normalizeMoney,
   normalizeOrderNo,
@@ -50,14 +51,18 @@ export function buildIncomeRefundEntries(input: {
         return
       }
 
-      const flowTypeColumn = item.flowTypeColumn && selectedSheet.headers.includes(item.flowTypeColumn)
-        ? item.flowTypeColumn
-        : pickOptionalColumn(selectedSheet.headers, DEFAULT_INCOME_FLOW_TYPE_HINTS)
+      const isIncomeMode = !typeColumn
+      const incomeStatementTypeColumn = selectedSheet.headers.find((header) => normalizeCellValue(header) === '收支类型') || ''
+      const effectiveSourceLabel = isIncomeMode && incomeStatementTypeColumn ? '订单收支明细表' : sourceLabel
+      const flowTypeColumn = incomeStatementTypeColumn || (
+        item.flowTypeColumn && selectedSheet.headers.includes(item.flowTypeColumn)
+          ? item.flowTypeColumn
+          : pickOptionalColumn(selectedSheet.headers, DEFAULT_INCOME_FLOW_TYPE_HINTS)
+      )
       const feeItemColumn = pickOptionalColumn(selectedSheet.headers, DEFAULT_INCOME_FEE_ITEM_HINTS)
       const movementColumn =
         pickOptionalColumn(selectedSheet.headers, DEFAULT_INCOME_MOVEMENT_HINTS) ||
         pickOptionalColumn(selectedColumns, DEFAULT_INCOME_MOVEMENT_HINTS)
-      const isIncomeMode = !typeColumn
 
       selectedSheet.rows.forEach((row) => {
         const orderNo = normalizeOrderNo(row[item.orderColumn])
@@ -71,7 +76,7 @@ export function buildIncomeRefundEntries(input: {
           收支来源Sheet: selectedSheet.name,
           收支匹配订单号: orderNo,
           收支匹配字段名: item.orderColumn,
-          收支来源区块: sourceLabel
+          收支来源区块: effectiveSourceLabel
         }
 
         if (isIncomeMode) {
@@ -90,7 +95,7 @@ export function buildIncomeRefundEntries(input: {
               变动金额: movementAmount,
               费用项: feeItemValue,
               币种: 'CNY',
-              来源: sourceLabel,
+              来源: effectiveSourceLabel,
               放退款类型: '',
               收支来源文件: baseRow.收支来源文件,
               收支来源Sheet: baseRow.收支来源Sheet
@@ -114,7 +119,7 @@ export function buildIncomeRefundEntries(input: {
               变动金额: movementAmount,
               费用项: column,
               币种: 'CNY',
-              来源: sourceLabel,
+              来源: effectiveSourceLabel,
               放退款类型: '',
               收支来源文件: baseRow.收支来源文件,
               收支来源Sheet: baseRow.收支来源Sheet
@@ -143,12 +148,9 @@ export function buildIncomeRefundEntries(input: {
               flowTypeColumn ? baseRow[flowTypeColumn] : baseRow.收支类型
             )
           const refundTypeText = typeColumn ? normalizeCellValue(baseRow[typeColumn]) : ''
-          const isCancelRefundType =
-            refundTypeText.includes('客户取消') ||
-            refundTypeText.includes('买家取消') ||
-            refundTypeText.includes('取消订单')
+          const shouldKeepZeroRefundRow = isRefundTypeExcludedFromExpense(refundTypeText)
 
-          if (Math.abs(movementAmount) < 0.000001 && !isCancelRefundType) {
+          if (Math.abs(movementAmount) < 0.000001 && !shouldKeepZeroRefundRow) {
             return
           }
 

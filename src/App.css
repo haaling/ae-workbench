@@ -355,25 +355,62 @@
 }
 
 .store-meta-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   min-width: 300px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-top: 12px;
+
+  label {
+    width: 100px;
+  }
+}
+
+.store-row-full {
+  grid-column: 1 / -1;
 }
 
 .store-select-inline {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.store-select-inline label {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.store-select-inline .compact-select {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.store-select-license-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.store-license-block {
+  align-content: center;
 }
 
 .store-license-inline {
+  display: inline-flex;
+  align-items: center;
+  flex: 1;
+  min-height: var(--upload-control-height);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--rounded-sm);
+  background: #fff;
+  padding: 0 12px;
   color: var(--text-muted);
   font-size: 13px;
-  white-space: nowrap;
+  line-height: 1.2;
+  word-break: break-word;
 }
 
 .exchange-rate-card {
@@ -491,6 +528,17 @@
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.store-list-row {
+  display: grid;
+  gap: 6px;
+}
+
+.store-list-detail {
+  text-align: left;
+  word-break: break-word;
+  line-height: 1.45;
 }
 
 .upload-card {
@@ -800,7 +848,6 @@
 .control-row {
   display: flex;
   align-items: center;
-  height: 60px;
   flex: 1;
   gap: 6px;
   width: 100%;
@@ -815,6 +862,16 @@
 
 .control-row-stacked .checkbox-grid {
   width: 100%;
+}
+
+.control-row-stacked .store-select-inline {
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+.control-row-stacked .store-license-inline {
+  white-space: normal;
+  word-break: break-word;
 }
 
 .auth-form {
@@ -866,7 +923,7 @@
 .auth-secondary-button {
   border: 1px solid transparent;
   border-radius: var(--rounded-sm);
-  min-height: 54px;
+  min-height: 44px;
   width: 300px;
   padding: 0 14px;
   font-size: 18px;
@@ -1425,6 +1482,10 @@
   }
 
   .store-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .store-select-license-grid {
     grid-template-columns: 1fr;
   }
 

@@ -79,6 +79,44 @@ npm install
 npm run dev
 ```
 
+默认会走本地联调模式：
+
+- 前端开发地址：`http://localhost:5173`
+- 前端请求基址：`/api`（由 Vite 代理）
+- 代理目标：`http://127.0.0.1:3100`
+
+### 前后端本地联调（推荐）
+
+1. 启动后端（`workbench-tenant-server`）
+
+```bash
+cd ../workbench-tenant-server
+cp .env.example .env
+npm install
+npm run dev
+```
+
+2. 启动前端（本项目）
+
+```bash
+cp .env.example .env
+npm install
+npm run dev
+```
+
+3. 首次本地初始化超级管理员（后端目录执行）
+
+```bash
+npm run create:super-admin -- --username=admin --email=admin@local.dev --password=Admin123456
+```
+
+4. 使用上面账号在前端登录调试即可。
+
+说明：
+
+- 若你此前在浏览器缓存过线上 API 地址，本项目在开发模式下会自动优先切回本地 `/api`。
+- 如需临时连远端服务，可在前端 `.env` 配置 `VITE_WORKBENCH_API_BASE_URL` 覆盖。
+
 ## 生产构建
 
 ```bash

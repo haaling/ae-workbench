@@ -71,11 +71,11 @@ const LEGACY_AUTH_API_BASE_URL_KEY = 'saas_api_base_url'
 const LEGACY_TENANT_API_BASE_URL_KEY = 'saas_tenant_api_base_url'
 const LEGACY_AUTH_GUEST_MODE_KEY = 'saas_guest_mode'
 const LEGACY_STORE_ID_STORAGE_KEY = 'saas_store_id'
-const DEFAULT_AUTH_API_BASE_URL = 'https://workbench-tenant-server-production.up.railway.app/api'
-const DEFAULT_TENANT_API_BASE_URL = 'https://workbench-tenant-server-production.up.railway.app/api'
+const LOCAL_DEV_API_BASE_URL = '/api'
+const PROD_API_BASE_URL = 'https://workbench-tenant-server-production.up.railway.app/api'
+const DEFAULT_AUTH_API_BASE_URL = import.meta.env.DEV ? LOCAL_DEV_API_BASE_URL : PROD_API_BASE_URL
+const DEFAULT_TENANT_API_BASE_URL = import.meta.env.DEV ? LOCAL_DEV_API_BASE_URL : PROD_API_BASE_URL
 const LEGACY_AUTH_SERVER_HOST = 'dianxiaomi-auth-server-production.up.railway.app'
-const WORKFLOW_REVIEWER_CACHE_KEY_PREFIX = 'workbench_workflow_reviewers_cache_v1'
-const WORKFLOW_REVIEWER_CACHE_TTL_MS = 6 * 60 * 60 * 1000
 const CHROME_EXPORT_PLUGIN_ZIP_PATH = '/aliexpress-order-export-extension.zip'
 
 const {
@@ -134,17 +134,43 @@ function App() {
     return normalized
   }
 
-  const [authApiBaseUrl] = useState(
-    normalizeAuthBaseUrl(readStorageWithLegacyFallback(AUTH_API_BASE_URL_KEY, LEGACY_AUTH_API_BASE_URL_KEY)) ||
+  const normalizeTenantBaseUrl = (value: string | null | undefined): string => {
+    return normalizeCellValue(value)
+  }
+
+  const shouldPreferLocalDevApi = (value: string | null | undefined): boolean => {
+    if (!import.meta.env.DEV) {
+      return false
+    }
+
+    const normalized = normalizeCellValue(value)
+    if (!normalized) {
+      return true
+    }
+
+    return normalized === PROD_API_BASE_URL || normalized.includes(LEGACY_AUTH_SERVER_HOST)
+  }
+
+  const storedAuthBaseUrl = readStorageWithLegacyFallback(AUTH_API_BASE_URL_KEY, LEGACY_AUTH_API_BASE_URL_KEY)
+  const envAuthBaseUrl =
     normalizeAuthBaseUrl(import.meta.env.VITE_WORKBENCH_API_BASE_URL) ||
     // Backward compatibility for old deployment config naming.
-    normalizeCellValue(import.meta.env.VITE_SAAS_API_BASE_URL) ||
-    DEFAULT_AUTH_API_BASE_URL
+    normalizeCellValue(import.meta.env.VITE_SAAS_API_BASE_URL)
+  const defaultAuthBaseUrl = shouldPreferLocalDevApi(storedAuthBaseUrl)
+    ? (normalizeAuthBaseUrl(envAuthBaseUrl) || DEFAULT_AUTH_API_BASE_URL)
+    : (normalizeAuthBaseUrl(storedAuthBaseUrl) || normalizeAuthBaseUrl(envAuthBaseUrl) || DEFAULT_AUTH_API_BASE_URL)
+
+  const storedTenantBaseUrl = readStorageWithLegacyFallback(TENANT_API_BASE_URL_KEY, LEGACY_TENANT_API_BASE_URL_KEY)
+  const envTenantBaseUrl = normalizeTenantBaseUrl(import.meta.env.VITE_WORKBENCH_API_BASE_URL)
+  const defaultTenantBaseUrl = shouldPreferLocalDevApi(storedTenantBaseUrl)
+    ? (envTenantBaseUrl || DEFAULT_TENANT_API_BASE_URL)
+    : (normalizeTenantBaseUrl(storedTenantBaseUrl) || envTenantBaseUrl || DEFAULT_TENANT_API_BASE_URL)
+
+  const [authApiBaseUrl] = useState(
+    defaultAuthBaseUrl
   )
   const [tenantApiBaseUrl] = useState(
-    readStorageWithLegacyFallback(TENANT_API_BASE_URL_KEY, LEGACY_TENANT_API_BASE_URL_KEY) ||
-    normalizeCellValue(import.meta.env.VITE_WORKBENCH_API_BASE_URL) ||
-    DEFAULT_TENANT_API_BASE_URL
+    defaultTenantBaseUrl
   )
   const [authToken, setAuthToken] = useState(
     readStorageWithLegacyFallback(AUTH_TOKEN_STORAGE_KEY, LEGACY_AUTH_TOKEN_STORAGE_KEY)
@@ -307,23 +333,92 @@ function App() {
   const authService = useMemo(() => createAuthService(normalizeCellValue(authApiBaseUrl)), [authApiBaseUrl])
   const tenantService = useMemo(() => createTenantService(tenantApiBaseUrl, authToken), [tenantApiBaseUrl, authToken])
 
-  const parseCompanyExtras = useCallback((notes: unknown): { companyCode: string; legalRepresentative: string; subsidiaries: string[] } => {
+  const parseCompanyExtras = useCallback((notes: unknown): {
+    companyCode: string
+    legalRepresentative: string
+    subsidiaries: string[]
+    subsidiaryProfiles: Array<{
+      name: string
+      status: 'active' | 'inactive'
+      remark: string
+      updatedAt: string
+      disabledAt: string
+    }>
+  } => {
     const text = normalizeCellValue(notes)
     if (!text) {
-      return { companyCode: '', legalRepresentative: '', subsidiaries: [] }
+      return { companyCode: '', legalRepresentative: '', subsidiaries: [], subsidiaryProfiles: [] }
     }
 
     try {
-      const parsed = JSON.parse(text) as { companyCode?: string; legalRepresentative?: string; subsidiaries?: string[] }
+      const parsed = JSON.parse(text) as {
+        companyCode?: string
+        legalRepresentative?: string
+        subsidiaries?: string[]
+        subsidiaryProfiles?: Array<{
+          name?: string
+          status?: string
+          remark?: string
+          updatedAt?: string
+          disabledAt?: string
+        }>
+      }
+      const profileMap = new Map<string, {
+        name: string
+        status: 'active' | 'inactive'
+        remark: string
+        updatedAt: string
+        disabledAt: string
+      }>()
+
+      const rawProfiles = Array.isArray(parsed.subsidiaryProfiles) ? parsed.subsidiaryProfiles : []
+      for (const item of rawProfiles) {
+        const name = normalizeCellValue(item?.name)
+        if (!name) {
+          continue
+        }
+        profileMap.set(name, {
+          name,
+          status: item?.status === 'inactive' ? 'inactive' : 'active',
+          remark: normalizeCellValue(item?.remark),
+          updatedAt: normalizeCellValue(item?.updatedAt),
+          disabledAt: normalizeCellValue(item?.disabledAt)
+        })
+      }
+
+      const legacySubsidiaries = Array.isArray(parsed.subsidiaries)
+        ? parsed.subsidiaries.map((item) => normalizeCellValue(item)).filter(Boolean)
+        : []
+
+      for (const name of legacySubsidiaries) {
+        const existing = profileMap.get(name)
+        if (existing) {
+          existing.status = 'active'
+          existing.disabledAt = ''
+        } else {
+          profileMap.set(name, {
+            name,
+            status: 'active',
+            remark: '',
+            updatedAt: '',
+            disabledAt: ''
+          })
+        }
+      }
+
+      const subsidiaryProfiles = Array.from(profileMap.values())
+      const subsidiaries = subsidiaryProfiles
+        .filter((item) => item.status !== 'inactive')
+        .map((item) => item.name)
+
       return {
         companyCode: normalizeCellValue(parsed.companyCode),
         legalRepresentative: normalizeCellValue(parsed.legalRepresentative),
-        subsidiaries: Array.isArray(parsed.subsidiaries)
-          ? parsed.subsidiaries.map((item) => normalizeCellValue(item)).filter(Boolean)
-          : []
+        subsidiaries,
+        subsidiaryProfiles
       }
     } catch {
-      return { companyCode: '', legalRepresentative: '', subsidiaries: [] }
+      return { companyCode: '', legalRepresentative: '', subsidiaries: [], subsidiaryProfiles: [] }
     }
   }, [])
 
@@ -335,6 +430,7 @@ function App() {
       companyCode: extras.companyCode,
       legalRepresentative: extras.legalRepresentative,
       subsidiaries: extras.subsidiaries,
+      subsidiaryProfiles: extras.subsidiaryProfiles,
       createdAt: normalizeCellValue(company.createdAt),
       expireDate: normalizeCellValue(company.expireDate),
       maxUsers: Number(company.maxUsers || 0) || undefined,
@@ -800,7 +896,7 @@ function App() {
   async function handleSaveSubsidiaries(subsidiaries: string[]) {
     if (!adminCompanyProfile?.id) {
       setErrorMessage('当前账号未绑定可修改的公司。')
-      return
+      return false
     }
 
     try {
@@ -827,8 +923,81 @@ function App() {
       setAdminCompanyProfile(mapped)
       setAdminCompanies((prev) => prev.map((item) => (item.id === mapped.id ? { ...item, ...mapped } : item)))
       setErrorMessage('分公司信息已保存。')
+      return true
     } catch (error) {
       setErrorMessage(`保存分公司失败：${error instanceof Error ? error.message : '未知错误'}`)
+      return false
+    }
+  }
+
+  async function handleUpdateSubsidiary(input: { currentName: string; name: string; remark?: string }) {
+    if (actualRole !== 'company_admin') {
+      setErrorMessage('仅公司管理员可修改分公司信息。')
+      return
+    }
+    if (!adminCompanyProfile?.id) {
+      setErrorMessage('当前账号未绑定可修改的公司。')
+      return
+    }
+
+    const currentName = normalizeCellValue(input.currentName)
+    const name = normalizeCellValue(input.name)
+    const remark = normalizeCellValue(input.remark)
+    if (!currentName || !name) {
+      setErrorMessage('分公司名称不能为空。')
+      return
+    }
+
+    try {
+      const payload = await tenantService.patchCompanySubsidiary(adminCompanyProfile.id, currentName, {
+        name,
+        remark
+      })
+      const company = (payload.data as { company?: Record<string, unknown> } | undefined)?.company
+      if (!company) {
+        throw new Error('接口返回缺少 company 数据')
+      }
+
+      const mapped = mapCompanyProfile(company)
+      setAdminCompanyProfile(mapped)
+      setAdminCompanies((prev) => prev.map((item) => (item.id === mapped.id ? { ...item, ...mapped } : item)))
+      setErrorMessage('分公司信息修改成功。')
+      await refreshEmployeeStoreData()
+    } catch (error) {
+      setErrorMessage(`修改分公司失败：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }
+
+  async function handleInvalidateSubsidiary(subsidiaryName: string) {
+    if (actualRole !== 'company_admin') {
+      setErrorMessage('仅公司管理员可执行分公司失效操作。')
+      return
+    }
+    if (!adminCompanyProfile?.id) {
+      setErrorMessage('当前账号未绑定可修改的公司。')
+      return
+    }
+
+    const name = normalizeCellValue(subsidiaryName)
+    if (!name) {
+      setErrorMessage('分公司名称不能为空。')
+      return
+    }
+
+    try {
+      const payload = await tenantService.invalidateCompanySubsidiary(adminCompanyProfile.id, name)
+      const company = (payload.data as { company?: Record<string, unknown> } | undefined)?.company
+      if (!company) {
+        throw new Error('接口返回缺少 company 数据')
+      }
+
+      const mapped = mapCompanyProfile(company)
+      setAdminCompanyProfile(mapped)
+      setAdminCompanies((prev) => prev.map((item) => (item.id === mapped.id ? { ...item, ...mapped } : item)))
+      setErrorMessage('分公司已失效。')
+      await refreshEmployeeStoreData()
+    } catch (error) {
+      setErrorMessage(`分公司失效失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
   }
 
@@ -895,7 +1064,8 @@ function App() {
           const employeePayload = await tenantService.createEmployee({
             name: normalizeCellValue(matchedUser.username),
             employeeCode: '',
-            notes: 'auto-created-from-store-assignment'
+            notes: 'auto-created-from-store-assignment',
+            userId
           })
           const employee = (employeePayload.data as { employee?: Record<string, unknown> } | undefined)?.employee
           const nextEmployeeId = normalizeCellValue(employee?._id || employee?.id)
@@ -1039,11 +1209,11 @@ function App() {
 
     if (!name || !username || !password || !role) {
       setErrorMessage('创建人员失败：姓名、账号、初始密码、身份为必填项。')
-      return
+      return false
     }
     if (password.length < 6) {
       setErrorMessage('创建人员失败：初始密码至少 6 位。')
-      return
+      return false
     }
 
     try {
@@ -1085,9 +1255,14 @@ function App() {
 
       setEmployees((prev) => [mapEmployee(employee), ...prev])
       await refreshEmployeeStoreData()
+      if (canOperateWorkflow) {
+        await refreshWorkflowData(false)
+      }
       setSuccessToast('新增员工成功（账号+档案）。')
+      return true
     } catch (error) {
       setErrorMessage(`创建人员失败：${error instanceof Error ? error.message : '未知错误'}`)
+      return false
     }
   }
 
@@ -1238,7 +1413,6 @@ function App() {
   const [selectedReviewerUserId, setSelectedReviewerUserId] = useState('')
   const [performanceWorkflows, setPerformanceWorkflows] = useState<PerformanceWorkflowItem[]>([])
   const [uploadCacheReady] = useState(true)
-  const reviewerCacheCompanyId = normalizeCellValue(authUser?.companyId || authUser?.company?.id)
 
   const isEmployeeReviewOnly = actualRole === 'employee'
   const workflowStatusLabelMap: Record<string, string> = {
@@ -1252,18 +1426,37 @@ function App() {
   const employeeHistoryWorkflows = performanceWorkflows.filter((item) => item.status === 'confirmed' || item.status === 'archived')
   const financeArchiveReadyWorkflows = performanceWorkflows.filter((item) => item.status === 'confirmed')
 
-  const pickDefaultReviewerByEmployee = (employeeId: string): string => {
-    if (!employeeId || workflowReviewers.length === 0) {
+  const pickActiveLinkedUserIdByEmployee = useCallback((employeeId: string): string => {
+    if (!employeeId) {
       return ''
     }
     const employee = employees.find((item) => item.id === employeeId)
     const linkedUserId = normalizeCellValue(employee?.userId)
-    if (linkedUserId) {
-      const linkedReviewer = workflowReviewers.find((item) => item.id === linkedUserId)
-      if (linkedReviewer) {
-        return linkedReviewer.id
-      }
+    if (!linkedUserId) {
+      return ''
     }
+    const linkedUser = managedUsers.find((item) => item.id === linkedUserId)
+    if (!linkedUser || linkedUser.isActive === false) {
+      return ''
+    }
+    return linkedUserId
+  }, [employees, managedUsers])
+
+  const pickDefaultReviewerByEmployee = useCallback((employeeId: string): string => {
+    if (!employeeId) {
+      return ''
+    }
+
+    const linkedActiveUserId = pickActiveLinkedUserIdByEmployee(employeeId)
+    if (linkedActiveUserId) {
+      return linkedActiveUserId
+    }
+
+    if (workflowReviewers.length === 0) {
+      return ''
+    }
+
+    const employee = employees.find((item) => item.id === employeeId)
     const employeeName = normalizeCellValue(employee?.name)
     const employeeCode = normalizeCellValue(employee?.employeeCode)
     if (!employeeName && !employeeCode) {
@@ -1283,20 +1476,23 @@ function App() {
       return (employeeName && username.includes(employeeName)) || (employeeCode && username.includes(employeeCode))
     })
     return fuzzy?.id || ''
-  }
+  }, [employees, workflowReviewers, pickActiveLinkedUserIdByEmployee])
 
   const pickDefaultReviewerByEmployeeFrom = useCallback((employeeId: string, reviewers: WorkflowReviewer[]): string => {
-    if (!employeeId || reviewers.length === 0) {
+    if (!employeeId) {
       return ''
     }
-    const employee = employees.find((item) => item.id === employeeId)
-    const linkedUserId = normalizeCellValue(employee?.userId)
-    if (linkedUserId) {
-      const linkedReviewer = reviewers.find((item) => item.id === linkedUserId)
-      if (linkedReviewer) {
-        return linkedReviewer.id
-      }
+
+    const linkedActiveUserId = pickActiveLinkedUserIdByEmployee(employeeId)
+    if (linkedActiveUserId) {
+      return linkedActiveUserId
     }
+
+    if (reviewers.length === 0) {
+      return ''
+    }
+
+    const employee = employees.find((item) => item.id === employeeId)
     const employeeName = normalizeCellValue(employee?.name)
     const employeeCode = normalizeCellValue(employee?.employeeCode)
     if (!employeeName && !employeeCode) {
@@ -1316,9 +1512,9 @@ function App() {
       return (employeeName && username.includes(employeeName)) || (employeeCode && username.includes(employeeCode))
     })
     return fuzzy?.id || ''
-  }, [employees])
+  }, [employees, pickActiveLinkedUserIdByEmployee])
 
-  const refreshWorkflowData = async (showLoading = true, forceReviewerRefresh = false) => {
+  const refreshWorkflowData = async (showLoading = true) => {
     if (!authToken || isGuestMode) {
       setPerformanceWorkflows([])
       setWorkflowReviewers([])
@@ -1331,39 +1527,13 @@ function App() {
     try {
       const workflowPayload = await tenantService.getPerformanceWorkflows(!canOperateWorkflow)
       let reviewerRows: Array<Record<string, unknown>> = []
-      const reviewerCacheKey = reviewerCacheCompanyId
-        ? `${WORKFLOW_REVIEWER_CACHE_KEY_PREFIX}:${reviewerCacheCompanyId}`
-        : ''
 
       if (canOperateWorkflow) {
-        if (!forceReviewerRefresh && reviewerCacheKey) {
-          try {
-            const cachedRaw = localStorage.getItem(reviewerCacheKey)
-            if (cachedRaw) {
-              const cached = JSON.parse(cachedRaw) as {
-                users?: Array<Record<string, unknown>>
-                updatedAt?: number
-              }
-              const updatedAt = Number(cached.updatedAt || 0)
-              const users = Array.isArray(cached.users) ? cached.users : []
-              if (users.length > 0 && Date.now() - updatedAt < WORKFLOW_REVIEWER_CACHE_TTL_MS) {
-                reviewerRows = users
-              }
-            }
-          } catch {
-            reviewerRows = []
-          }
-        }
-
         try {
-          if (reviewerRows.length === 0) {
-            const reviewerPayload = await tenantService.getWorkflowReviewers()
-            reviewerRows = (reviewerPayload.data as { users?: Array<Record<string, unknown>> } | undefined)?.users || []
-          }
+          const reviewerPayload = await tenantService.getWorkflowReviewers()
+          reviewerRows = (reviewerPayload.data as { users?: Array<Record<string, unknown>> } | undefined)?.users || []
         } catch {
-          if (reviewerRows.length === 0) {
-            reviewerRows = []
-          }
+          reviewerRows = []
         }
 
         if (reviewerRows.length === 0) {
@@ -1374,17 +1544,6 @@ function App() {
             const isActive = Boolean(user.isActive)
             return isActive
           })
-        }
-
-        if (reviewerRows.length > 0 && reviewerCacheKey) {
-          try {
-            localStorage.setItem(
-              reviewerCacheKey,
-              JSON.stringify({ users: reviewerRows, updatedAt: Date.now() })
-            )
-          } catch {
-            // Ignore cache write failures (quota/private mode).
-          }
         }
       }
 
@@ -1446,9 +1605,11 @@ function App() {
         .flatMap((item) => item.employeeIds)
     )
 
-    const scopedEmployees = idsInSubsidiary.size > 0
+    const scopedEmployees = (idsInSubsidiary.size > 0
       ? employees.filter((item) => idsInSubsidiary.has(item.id))
-      : employees
+      : employees)
+      .filter((item) => normalizeCellValue(item.status) !== 'inactive')
+      .filter((item) => Boolean(pickDefaultReviewerByEmployee(item.id)))
 
     const findAccountUsernameByEmployee = (employee: AdminEmployee): string => {
       const employeeName = normalizeCellValue(employee.name)
@@ -1476,7 +1637,7 @@ function App() {
       id: item.id,
       label: `${item.name}${findAccountUsernameByEmployee(item) ? `（${findAccountUsernameByEmployee(item)}）` : item.employeeCode ? `（${item.employeeCode}）` : ''}`
     }))
-  }, [subsidiary, branchStores, employees, workflowReviewers])
+  }, [subsidiary, branchStores, employees, workflowReviewers, pickDefaultReviewerByEmployee])
 
   const storeOptions = useMemo(() => {
     if (!subsidiary || !selectedEmployeeId) {
@@ -1488,13 +1649,24 @@ function App() {
       .map((item) => ({ id: item.id, name: item.shopName }))
   }, [subsidiary, selectedEmployeeId, branchStores])
 
+  const hasValidShopSelection = Boolean(
+    subsidiary &&
+    selectedEmployeeId &&
+    shopId &&
+    storeOptions.some((item) => item.id === shopId)
+  )
+  const effectiveShopId = hasValidShopSelection ? shopId : ''
+  const effectiveShopName = hasValidShopSelection
+    ? (storeOptions.find((item) => item.id === shopId)?.name || shopName)
+    : ''
+
   const selectedBusinessLicenseName = useMemo(() => {
-    if (!shopId) {
+    if (!effectiveShopId) {
       return ''
     }
-    const selectedStore = branchStores.find((item) => item.id === shopId)
+    const selectedStore = branchStores.find((item) => item.id === effectiveShopId)
     return normalizeCellValue(selectedStore?.businessLicenseName)
-  }, [shopId, branchStores])
+  }, [effectiveShopId, branchStores])
 
   useEffect(() => {
     localStorage.setItem(AUTH_API_BASE_URL_KEY, authApiBaseUrl)
@@ -1531,8 +1703,8 @@ function App() {
       freightWaybillColumn,
       freightAmountCnyColumn,
       freightAmountUsdColumn,
-      shopId,
-      shopName,
+      shopId: effectiveShopId,
+      shopName: effectiveShopName,
       subsidiary,
       usdExchangeRate,
       workflowPeriod
@@ -1563,8 +1735,8 @@ function App() {
     freightWaybillColumn,
     freightAmountCnyColumn,
     freightAmountUsdColumn,
-    shopId,
-    shopName,
+    effectiveShopId,
+    effectiveShopName,
     subsidiary,
     usdExchangeRate,
     workflowPeriod
@@ -2571,6 +2743,7 @@ function App() {
 
         {resolvedActiveView === 'employee' && canAccessEmployeeManagement && (
           <EmployeeManagementSection
+            key={`${employeeCompanyTab}-${employeeStaffTab}`}
             companyProfile={adminCompanyProfile}
             managedUsers={managedUsers}
             employees={employees}
@@ -2583,6 +2756,8 @@ function App() {
             employeeTab={employeeStaffTab}
             onAddStaff={handleAddStaff}
             onSaveSubsidiaries={handleSaveSubsidiaries}
+            onUpdateSubsidiary={handleUpdateSubsidiary}
+            onInvalidateSubsidiary={handleInvalidateSubsidiary}
             onCreateStore={handleCreateStoreWithAssignments}
             onBindEmployeeStores={handleBindEmployeeStores}
             onResignEmployee={handleResignEmployee}
@@ -2646,7 +2821,7 @@ function App() {
             </div>
 
           <StoreMetaSection
-            shopId={shopId}
+            shopId={effectiveShopId}
             subsidiary={subsidiary}
             selectedEmployeeId={selectedEmployeeId}
             subsidiaryOptions={subsidiaryOptions}
@@ -2774,7 +2949,7 @@ function App() {
                 void createAndPushPerformanceWorkflow()
               }}
               onRefreshWorkflowData={() => {
-                void refreshWorkflowData(true, true)
+                void refreshWorkflowData(true)
               }}
               onArchivePerformanceWorkflow={(workflowId) => {
                 void archivePerformanceWorkflow(workflowId)
@@ -2802,7 +2977,7 @@ function App() {
               void createAndPushPerformanceWorkflow()
             }}
             onRefreshWorkflowData={() => {
-              void refreshWorkflowData(true, true)
+              void refreshWorkflowData(true)
             }}
             onArchivePerformanceWorkflow={(workflowId) => {
               void archivePerformanceWorkflow(workflowId)
