@@ -61,6 +61,7 @@ function WorkflowBlock(props: {
 }) {
   const { workflow, statusLabel, showConfirm, isSubmitting, onConfirmWorkflow } = props
   const displayRows = toDisplayRows(workflow.uploadedRows as Array<Record<string, unknown>>)
+  const expectedIncomeHeaderHint = '预计可得口径未扣除：物流上网超时处罚、违背发货承诺处罚；仅在净利润中扣除。'
 
   return (
     <section className="admin-card admin-card-full">
@@ -88,7 +89,23 @@ function WorkflowBlock(props: {
               <thead>
                 <tr>
                   {WORKFLOW_DISPLAY_COLUMNS.map((column) => (
-                    <th key={column.label}>{column.label}</th>
+                    <th key={column.label}>
+                      <span className="table-header-label">{column.label}</span>
+                      {column.label === '订单预计可得' && (
+                        <span className="table-header-hint-wrap">
+                          <span
+                            className="table-header-hint"
+                            aria-label={expectedIncomeHeaderHint}
+                            tabIndex={0}
+                          >
+                            ?
+                          </span>
+                          <span className="table-header-tooltip" role="tooltip">
+                            {expectedIncomeHeaderHint}
+                          </span>
+                        </span>
+                      )}
+                    </th>
                   ))}
                 </tr>
               </thead>

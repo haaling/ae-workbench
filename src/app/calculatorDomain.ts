@@ -321,12 +321,6 @@ export function toFeeItemAmountColumn(feeItemName: string): string {
   return `${text}_费用项金额`
 }
 
-export function toTypeFeeItemAmountColumn(typeName: string, feeItemName: string): string {
-  const typeText = normalizeCellValue(typeName) || '未分类收支类型'
-  const feeText = normalizeCellValue(feeItemName) || '未分类费用项'
-  return `${typeText}+${feeText}_类型费用项金额`
-}
-
 export function toLogisticsSubItemAmountColumn(sourceLabel: '收支表' | '金掌柜', feeItemName: string): string {
   const feeText = normalizeCellValue(feeItemName) || '未分类'
   return `物流支出_${sourceLabel}_${feeText}`

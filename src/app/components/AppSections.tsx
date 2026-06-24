@@ -1210,6 +1210,7 @@ export function ResultPreviewPanel(props: ResultPreviewPanelProps) {
   const [hoverRowIndex, setHoverRowIndex] = useState<number | null>(null)
   const [hoverColumnKey, setHoverColumnKey] = useState<string>('')
   const tableColumns = Object.keys(result.aggregatedRows[0] || {})
+  const expectedIncomeHeaderHint = '预计可得口径未扣除：物流上网超时处罚、违背发货承诺处罚；仅在净利润中扣除。'
 
   const handleTableCopyShortcut = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'c') {
@@ -1276,7 +1277,21 @@ export function ResultPreviewPanel(props: ResultPreviewPanelProps) {
                   className={hoverColumnKey === col ? 'is-col-hover' : ''}
                   onMouseEnter={() => setHoverColumnKey(col)}
                 >
-                  {col}
+                  <span className="table-header-label">{col}</span>
+                  {col === '订单预计可得' && (
+                    <span className="table-header-hint-wrap">
+                      <span
+                        className="table-header-hint"
+                        aria-label={expectedIncomeHeaderHint}
+                        tabIndex={0}
+                      >
+                        ?
+                      </span>
+                      <span className="table-header-tooltip" role="tooltip">
+                        {expectedIncomeHeaderHint}
+                      </span>
+                    </span>
+                  )}
                 </th>
               ))}
             </tr>

@@ -1367,6 +1367,63 @@
   font-weight: 500;
 }
 
+.table-header-label {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.table-header-hint-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.table-header-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border: 1px solid #c8c1b9;
+  border-radius: 9999px;
+  color: #73695d;
+  background: #fff;
+  font-size: 11px;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+}
+
+.table-header-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  max-width: 320px;
+  padding: 8px 10px;
+  border: 1px solid #d8d0c7;
+  border-radius: 8px;
+  background: #fff;
+  color: #5c5348;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 12;
+  white-space: normal;
+}
+
+.table-header-hint-wrap:hover .table-header-tooltip,
+.table-header-hint-wrap:focus-within .table-header-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
 .detail-table td.is-row-hover,
 .detail-table th.is-col-hover,
 .detail-table td.is-col-hover {

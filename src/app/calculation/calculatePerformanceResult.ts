@@ -1,5 +1,6 @@
 import type { ProcessResult, ResultSummary, RowData } from '../calculatorDomain'
 import {
+  DEFAULT_ORDER_ID_HINTS,
   DEFAULT_ALIPAY_AMOUNT_HINTS,
   DEFAULT_ALIPAY_REMARK_HINTS,
   buildCountMap,
@@ -20,7 +21,6 @@ import {
   toLogisticsSubItemAmountColumn,
   toNumericValue,
   toTypeAmountColumn,
-  toTypeFeeItemAmountColumn,
   REFUND_BASE_AMOUNT_HINTS,
   hasKeyword
 } from '../calculatorDomain'
@@ -88,6 +88,12 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
   } = input
 
   const DEBUG_CALC = true
+  const EXPECTED_INCOME_EXCLUDED_FEE_ITEMS = new Set([
+    '物流上网超时处罚_费用项金额',
+    '违背发货承诺处罚_费用项金额',
+    '物流上网超时处罚',
+    '违背发货承诺处罚'
+  ])
   const orderRows = buildOrderRows(ordersSheetRows, ordersIdColumn)
   const orderIds = buildOrderIds(orderRows, ordersIdColumn)
 
@@ -111,6 +117,29 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     effectiveRefundTypeColumn
   })
 
+  const resolveRawOrderColumn = (headers: string[], preferred: string): string => {
+    if (preferred && headers.includes(preferred)) {
+      return preferred
+    }
+
+    return headers.find((header) => hasKeyword(header, DEFAULT_ORDER_ID_HINTS)) || preferred
+  }
+
+  const russiaOrderDetailOrderSet = new Set(
+    incomeFiles.flatMap((item) => {
+      const candidateSheets = item.file.sheets.filter(
+        (sheet) => !sheet.headers.some((header) => normalizeCellValue(header) === '收支类型')
+      )
+
+      return candidateSheets.flatMap((sheet) => {
+        const orderColumn = resolveRawOrderColumn(sheet.headers, item.orderColumn)
+        return sheet.rows
+          .map((row) => normalizeOrderNo(row[orderColumn]))
+          .filter(Boolean)
+      })
+    })
+  )
+
   if (DEBUG_CALC) {
     console.groupCollapsed('[Calc Debug] 上传识别与明细入库')
     console.log('incomeFiles:', incomeFiles.map((item) => ({
@@ -123,6 +152,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     console.log('effectiveRefundDetailAmountColumns:', effectiveRefundDetailAmountColumns)
     console.log('incomeDetailRows count:', incomeDetailRows.length)
     console.log('refundDetailRows count:', refundDetailRows.length)
+    console.log('russiaOrderDetailOrderSet count:', russiaOrderDetailOrderSet.size)
     console.table(incomeDetailRows.slice(0, 20).map((row) => ({
       订单号: normalizeOrderNo(row.订单号),
       收支类型: normalizeCellValue(row.收支类型),
@@ -474,14 +504,6 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         .filter(Boolean)
     )
   )
-  const allTypeFeeItemColumns = Array.from(
-    new Set(
-      sortedPerformanceRows
-        .filter((row) => isOrderIncomeSource(normalizeCellValue(row.来源)))
-        .map((row) => toTypeFeeItemAmountColumn(normalizeCellValue(row.收支类型), normalizeCellValue(row.费用项)))
-        .filter(Boolean)
-    )
-  )
   const allLogisticsSubItemColumns = Array.from(
     new Set(
       sortedPerformanceRows.flatMap((row) => {
@@ -521,10 +543,10 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     const feeItem = normalizeCellValue(row.费用项) || type
     const typeColumn = toTypeAmountColumn(type)
     const feeItemColumn = toFeeItemAmountColumn(feeItem)
-    const typeFeeItemColumn = toTypeFeeItemAmountColumn(type, feeItem)
     const current = aggregatedMap.get(orderNo) || {
       订单号: orderNo,
       订单状态: normalizeCellValue(row.订单状态),
+      是否放款: '否',
       订单时间: normalizeCellValue(row.订单时间),
       放退款类型: '',
       放退款核查标记: '',
@@ -571,8 +593,11 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
       线下运费: 0,
       采购费用: 0,
       __incomeStatementRowCount: 0,
+      __incomeStatementNetAmount: 0,
+      __incomeStatementLogisticsExpense: 0,
       __incomeRowCount: 0,
       __refundRowCount: 0,
+      __expectedIncomeExcludedFeeAmount: 0,
       支付宝是否开发票: '',
       最终收入_未扣运费: 0,
       最终收入_扣运费: 0,
@@ -608,6 +633,9 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
       current.__incomeRowCount = toNumericValue(current.__incomeRowCount) + 1
       if (source === '订单收支明细表') {
         current.__incomeStatementRowCount = toNumericValue(current.__incomeStatementRowCount) + 1
+        current.__incomeStatementNetAmount = normalizeMoney(
+          toNumericValue(current.__incomeStatementNetAmount) + amount
+        )
       }
 
       current.订单明细_净收支合计 = normalizeMoney(toNumericValue(current.订单明细_净收支合计) + amount)
@@ -623,6 +651,12 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         current.收支表_支出物流费用 = normalizeMoney(
           toNumericValue(current.收支表_支出物流费用) + logisticsExpense
         )
+
+        if (source === '订单收支明细表') {
+          current.__incomeStatementLogisticsExpense = normalizeMoney(
+            toNumericValue(current.__incomeStatementLogisticsExpense) + logisticsExpense
+          )
+        }
 
         const logisticsSubItemColumn = toLogisticsSubItemAmountColumn('收支表', feeItem)
         current[logisticsSubItemColumn] = normalizeMoney(
@@ -655,6 +689,15 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
       } else if (type.includes('平台分账金额')) {
         current.订单明细_平台分账金额合计 = normalizeMoney(
           toNumericValue(current.订单明细_平台分账金额合计) + Math.abs(amount)
+        )
+      }
+
+      const isExpectedExcludedFeeItem =
+        EXPECTED_INCOME_EXCLUDED_FEE_ITEMS.has(feeItem) ||
+        EXPECTED_INCOME_EXCLUDED_FEE_ITEMS.has(type)
+      if (isExpectedExcludedFeeItem) {
+        current.__expectedIncomeExcludedFeeAmount = normalizeMoney(
+          toNumericValue(current.__expectedIncomeExcludedFeeAmount) + amount
         )
       }
     }
@@ -718,7 +761,6 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     current[typeColumn] = normalizeMoney(toNumericValue(current[typeColumn]) + amount)
     if (isOrderIncomeSource(source)) {
       current[feeItemColumn] = normalizeMoney(toNumericValue(current[feeItemColumn]) + amount)
-      current[typeFeeItemColumn] = normalizeMoney(toNumericValue(current[typeFeeItemColumn]) + amount)
     }
 
     const payoutAmount = normalizeMoney(current.订单明细_放款金额合计)
@@ -764,19 +806,39 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     current.物流支出总和 = logisticsExpenseTotal
     const totalFreight = logisticsExpenseTotal
     const hasIncomeStatementRows = toNumericValue(current.__incomeStatementRowCount) > 0
+    const hasRussiaOrderDetailRows =
+      russiaOrderDetailOrderSet.has(orderNo) ||
+      toNumericValue(current.__incomeRowCount) > toNumericValue(current.__incomeStatementRowCount)
+    const isNonRussiaIncomeStatementOnlyOrder = hasIncomeStatementRows && !hasRussiaOrderDetailRows
     const hasRefundRows = toNumericValue(current.__refundRowCount) > 0
+    const incomeFromIncomeStatementSupplement = normalizeMoney(
+      toNumericValue(current.__incomeStatementNetAmount) +
+      toNumericValue(current.__incomeStatementLogisticsExpense)
+    )
+    const hasIncomeStatementSupplement = Math.abs(incomeFromIncomeStatementSupplement) > 0.000001
+    current.是否放款 = hasRefundRows ? '是' : '否'
     const incomeBasis =
-      hasIncomeStatementRows
+      isNonRussiaIncomeStatementOnlyOrder
         ? 'income'
+        : hasRussiaOrderDetailRows && hasRefundRows && hasIncomeStatementSupplement
+          ? 'refund-plus-income-statement'
         : hasRefundRows
           ? 'refund'
           : 'order'
 
     const primaryIncomeBeforeFreight = incomeBasis === 'income'
       ? incomeFromIncomeStatement
+      : incomeBasis === 'refund-plus-income-statement'
+        ? normalizeMoney(incomeFromRefundDetail + incomeFromIncomeStatementSupplement)
       : incomeBasis === 'refund'
         ? incomeFromRefundDetail
         : incomeFromOrderDetail
+    const expectedIncomeExcludedFeeAmount = incomeBasis === 'refund'
+      ? 0
+      : normalizeMoney(current.__expectedIncomeExcludedFeeAmount)
+    const expectedIncomeBeforeFreight = normalizeMoney(
+      primaryIncomeBeforeFreight - expectedIncomeExcludedFeeAmount
+    )
     const expectedFromIncomeAndFreight = normalizeMoney(
       primaryIncomeBeforeFreight - logisticsExpenseTotal
     )
@@ -814,8 +876,10 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     current.预计可得_按收支及运费 = expectedFromIncomeAndFreight
     current.预计可得_按退放款及运费 = expectedFromRefundAndFreight
     current.预计可得差异_收支减退放款 = expectedIncomeDiff
-    current.预计可得校验状态 = Math.abs(expectedIncomeDiff) <= 0.01 ? '一致' : '不一致'
-    current.最终收入_未扣运费 = primaryIncomeBeforeFreight
+    current.预计可得校验状态 = isNonRussiaIncomeStatementOnlyOrder
+      ? '-'
+      : Math.abs(expectedIncomeDiff) <= 0.01 ? '一致' : '不一致'
+    current.最终收入_未扣运费 = expectedIncomeBeforeFreight
     current.最终收入_扣运费 = netAfterPurchaseFreightAndTariff
     current.税费金额_金掌柜 = tariffByUsdInCny
     current.税费金额_放退款 = tariffByRefundCandidate
@@ -854,11 +918,6 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
           next[col] = 0
         }
       })
-      allTypeFeeItemColumns.forEach((col) => {
-        if (next[col] === undefined) {
-          next[col] = 0
-        }
-      })
       allLogisticsSubItemColumns.forEach((col) => {
         if (next[col] === undefined) {
           next[col] = 0
@@ -874,6 +933,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         订单号: normalizeOrderNo(next.订单号),
         订单时间: normalizeCellValue(next.订单时间),
         订单状态: normalizeCellValue(next.订单状态),
+        是否放款: normalizeCellValue(next.是否放款) || '否',
         订单预计可得: normalizeMoney(next.最终收入_未扣运费),
         物流费用_支出表: normalizeMoney(next.收支表_支出物流费用),
         物流费用_金掌柜: normalizeMoney(next.金掌柜物流费支出),
@@ -908,7 +968,6 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         收支总和_不含物流费用: normalizeMoney(next.收支总和_不含物流费用),
         差异_收支不含物流减退放款: normalizeMoney(next.差异_收支不含物流减退放款),
         收入差异_订单明细减放退款: normalizeMoney(next.收入差异_订单明细减放退款),
-        收入校验状态: normalizeCellValue(next.收入校验状态),
         预计可得_按收支及运费: normalizeMoney(next.预计可得_按收支及运费),
         预计可得_按退放款及运费: normalizeMoney(next.预计可得_按退放款及运费),
         预计可得差异_收支减退放款: normalizeMoney(next.预计可得差异_收支减退放款),
@@ -916,7 +975,6 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         备注: mergedRemark,
         ...Object.fromEntries(allOfflineCategoryColumns.map((col) => [col, normalizeMoney(next[col])])),
         ...Object.fromEntries(allLogisticsSubItemColumns.map((col) => [col, normalizeMoney(next[col])])),
-        ...Object.fromEntries(allTypeFeeItemColumns.map((col) => [col, normalizeMoney(next[col])])),
         ...Object.fromEntries(allTypeColumns.map((col) => [col, normalizeMoney(next[col])])),
         ...Object.fromEntries(allFeeItemColumns.map((col) => [col, normalizeMoney(next[col])])),
       }
@@ -933,7 +991,6 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
       收支总和_不含物流费用: normalizeMoney(row.收支总和_不含物流费用),
       差异_收支不含物流减退放款: normalizeMoney(row.差异_收支不含物流减退放款),
       收入差异_订单明细减放退款: normalizeMoney(row.收入差异_订单明细减放退款),
-      收入校验状态: normalizeCellValue(row.收入校验状态),
       放退款核查标记: normalizeCellValue(row.放退款核查标记),
       总物流费用: normalizeMoney(row.总物流费用),
       订单预计可得: normalizeMoney(row.订单预计可得),
@@ -961,7 +1018,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
       const orderNo = normalizeOrderNo(row.订单号)
       const finalIncome = toNumericValue(row.净利润)
       const incomeBeforeFreight = toNumericValue(row.订单预计可得)
-      const mismatch = normalizeCellValue(row.收入校验状态) === '不一致'
+      const mismatch = normalizeCellValue(row.预计可得校验状态) === '不一致'
       const refundTypeText = normalizeCellValue(row.放退款类型)
 
       if (refundTypeText.includes('取消订单退款')) {
@@ -1023,7 +1080,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     aggregatedRows,
     dynamicTypeColumns: allTypeColumns,
     dynamicFeeItemColumns: allFeeItemColumns,
-    dynamicTypeFeeItemColumns: allTypeFeeItemColumns,
+    dynamicTypeFeeItemColumns: [],
     dynamicLogisticsSubItemColumns: allLogisticsSubItemColumns,
     dynamicOfflineCategoryColumns: allOfflineCategoryColumns,
     incomeValidationRows,
