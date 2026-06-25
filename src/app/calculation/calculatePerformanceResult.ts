@@ -88,6 +88,35 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
   } = input
 
   const DEBUG_CALC = true
+  const isLogisticsExpenseType = (typeText: string): boolean => {
+    const text = normalizeCellValue(typeText)
+    if (!text) {
+      return false
+    }
+
+    if (text.includes('支出>物流费用')) {
+      return true
+    }
+
+    return /支出\s*(?:-|=)?\s*>\s*物流(?:费|费用)/.test(text)
+  }
+
+  const isExcludedFromLogisticsDeduction = (feeItemText: string): boolean => {
+    const text = normalizeCellValue(feeItemText).toLowerCase()
+    if (!text) {
+      return false
+    }
+
+    return (
+      text.includes('关税') ||
+      text.includes('税费') ||
+      text.includes('ddp') ||
+      text.includes('tax') ||
+      text.includes('tariff') ||
+      text.includes('duty')
+    )
+  }
+
   const EXPECTED_INCOME_EXCLUDED_FEE_ITEMS = new Set([
     '物流上网超时处罚_费用项金额',
     '违背发货承诺处罚_费用项金额',
@@ -511,7 +540,11 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         const type = normalizeCellValue(row.收支类型)
         const feeItem = normalizeCellValue(row.费用项) || type || '未分类'
 
-        if (isOrderIncomeSource(source) && type.includes('支出>物流费用')) {
+        if (
+          isOrderIncomeSource(source) &&
+          isLogisticsExpenseType(type) &&
+          !isExcludedFromLogisticsDeduction(feeItem)
+        ) {
           return [toLogisticsSubItemAmountColumn('收支表', feeItem)]
         }
         if (source === '运费表' || type === '物流运费') {
@@ -571,9 +604,12 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
       订单明细_净放款口径收入: 0,
       金掌柜计费金额合计USD: 0,
       税费金额_金掌柜: 0,
+      税费金额_收支表: 0,
       税费金额_放退款: 0,
       税费核对_USD汇率: 0,
       税费核对_按金掌柜USD折CNY: 0,
+      税费核对_按收支表税费: 0,
+      税费核对_基准来源: '',
       税费核对_按放退款税费候选金额: 0,
       税费核对_差异: 0,
       税费核对状态: '',
@@ -595,6 +631,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
       __incomeStatementRowCount: 0,
       __incomeStatementNetAmount: 0,
       __incomeStatementLogisticsExpense: 0,
+      __incomeStatementTaxFeeExcludedAmount: 0,
       __incomeRowCount: 0,
       __refundRowCount: 0,
       __expectedIncomeExcludedFeeAmount: 0,
@@ -646,7 +683,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         current.支出_收支明细表 = normalizeMoney(toNumericValue(current.支出_收支明细表) + Math.abs(amount))
       }
 
-      if (type.includes('支出>物流费用')) {
+      if (isLogisticsExpenseType(type) && !isExcludedFromLogisticsDeduction(feeItem)) {
         const logisticsExpense = amount < 0 ? Math.abs(amount) : 0
         current.收支表_支出物流费用 = normalizeMoney(
           toNumericValue(current.收支表_支出物流费用) + logisticsExpense
@@ -661,6 +698,13 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         const logisticsSubItemColumn = toLogisticsSubItemAmountColumn('收支表', feeItem)
         current[logisticsSubItemColumn] = normalizeMoney(
           toNumericValue(current[logisticsSubItemColumn]) + logisticsExpense
+        )
+      }
+
+      if (isLogisticsExpenseType(type) && isExcludedFromLogisticsDeduction(feeItem)) {
+        const excludedTaxFeeExpense = amount < 0 ? Math.abs(amount) : 0
+        current.__incomeStatementTaxFeeExcludedAmount = normalizeMoney(
+          toNumericValue(current.__incomeStatementTaxFeeExcludedAmount) + excludedTaxFeeExpense
         )
       }
 
@@ -790,7 +834,9 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
       ? netPayoutIncome
       : normalizeMoney(current.订单明细_净收支合计)
     const incomeFromIncomeStatement = normalizeMoney(
-      toNumericValue(current.订单明细_净收支合计) + incomeLogisticsExpense
+      toNumericValue(current.订单明细_净收支合计) +
+      incomeLogisticsExpense +
+      toNumericValue(current.__incomeStatementTaxFeeExcludedAmount)
     )
     current.订单明细_净放款基准金额 = netPayoutBaseAmount
     current.订单明细_净放款口径收入 = netPayoutIncome
@@ -849,19 +895,36 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     const expectedIncomeDiff = normalizeMoney(expectedFromIncomeAndFreight - expectedFromRefundAndFreight)
     const usdRate = normalizeMoney(usdExchangeRate)
     const tariffByUsdInCny = normalizeMoney(toNumericValue(current.金掌柜计费金额合计USD) * usdRate)
+    const tariffByUsdRaw = normalizeMoney(current.金掌柜计费金额合计USD)
     const tariffCandidateAmount = normalizeMoney(current.放退款_税费候选金额合计)
     const tariffByRefundCandidate = tariffCandidateAmount
+    const incomeSideTaxFeeExcluded = normalizeMoney(current.__incomeStatementTaxFeeExcludedAmount)
+    const tariffByIncomeStatement = incomeSideTaxFeeExcluded
+    const hasIncomeSideTariff = Math.abs(tariffByIncomeStatement) > 0.000001
+    const hasJzgTariff = Math.abs(tariffByUsdInCny) > 0.000001
+    const hasJzgUsdRaw = Math.abs(tariffByUsdRaw) > 0.000001
+    const tariffReferenceAmount = normalizeMoney(tariffByIncomeStatement + tariffByUsdInCny)
+    const tariffReferenceSource = hasIncomeSideTariff && hasJzgTariff
+      ? '收支表+金掌柜USD折算'
+      : hasIncomeSideTariff
+        ? '收支表'
+        : hasJzgTariff
+          ? '金掌柜USD折算'
+          : ''
+    const tariffDeductionForNet = normalizeMoney(
+      Math.max(0, tariffByRefundCandidate - incomeSideTaxFeeExcluded)
+    )
     const refundTypeSummary = normalizeCellValue(current.放退款类型)
     const isDisputeRefundOrder = refundTypeSummary.includes('纠纷')
     const netAfterPurchaseFreightAndTariff = normalizeMoney(
-      isDisputeRefundOrder ? netAfterPurchaseAndFreight : netAfterPurchaseAndFreight - tariffByRefundCandidate
+      isDisputeRefundOrder ? netAfterPurchaseAndFreight : netAfterPurchaseAndFreight - tariffDeductionForNet
     )
-    const tariffDiff = normalizeMoney(tariffByRefundCandidate - tariffByUsdInCny)
+    const tariffDiff = normalizeMoney(tariffByRefundCandidate - tariffReferenceAmount)
     const hasTariffInputs =
-      Math.abs(tariffByRefundCandidate) > 0.000001 || Math.abs(tariffByUsdInCny) > 0.000001
+      Math.abs(tariffByRefundCandidate) > 0.000001 || Math.abs(tariffReferenceAmount) > 0.000001
     const tariffStatus = !hasTariffInputs
       ? ''
-      : usdRate <= 0
+      : hasJzgUsdRaw && usdRate <= 0
         ? '缺少汇率'
         : Math.abs(tariffDiff) <= 1
           ? '基本对上'
@@ -882,9 +945,12 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     current.最终收入_未扣运费 = expectedIncomeBeforeFreight
     current.最终收入_扣运费 = netAfterPurchaseFreightAndTariff
     current.税费金额_金掌柜 = tariffByUsdInCny
+    current.税费金额_收支表 = tariffByIncomeStatement
     current.税费金额_放退款 = tariffByRefundCandidate
     current.税费核对_USD汇率 = usdRate
     current.税费核对_按金掌柜USD折CNY = tariffByUsdInCny
+    current.税费核对_按收支表税费 = tariffByIncomeStatement
+    current.税费核对_基准来源 = tariffReferenceSource
     current.税费核对_按放退款税费候选金额 = tariffByRefundCandidate
     current.税费核对_差异 = tariffDiff
     current.税费核对状态 = tariffStatus
@@ -958,8 +1024,10 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         订单明细_净放款口径收入: normalizeMoney(next.订单明细_净放款口径收入),
         金掌柜计费金额合计USD: normalizeMoney(next.金掌柜计费金额合计USD),
         税费金额_金掌柜: normalizeMoney(next.税费金额_金掌柜),
+        税费金额_收支表: normalizeMoney(next.税费金额_收支表),
         税费金额_放退款: normalizeMoney(next.税费金额_放退款),
         税费核对_USD汇率: normalizeMoney(next.税费核对_USD汇率),
+        税费核对_基准来源: normalizeCellValue(next.税费核对_基准来源),
         税费核对_差异: normalizeMoney(next.税费核对_差异),
         税费核对状态: normalizeCellValue(next.税费核对状态),
         放退款_佣金合计: normalizeMoney(next.放退款_佣金合计),
