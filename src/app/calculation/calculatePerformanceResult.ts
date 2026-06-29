@@ -911,9 +911,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         : hasJzgTariff
           ? '金掌柜USD折算'
           : ''
-    const tariffDeductionForNet = normalizeMoney(
-      Math.max(0, tariffByRefundCandidate - incomeSideTaxFeeExcluded)
-    )
+    const tariffDeductionForNet = normalizeMoney(tariffByIncomeStatement + tariffByUsdInCny)
     const refundTypeSummary = normalizeCellValue(current.放退款类型)
     const isDisputeRefundOrder = refundTypeSummary.includes('纠纷')
     const netAfterPurchaseFreightAndTariff = normalizeMoney(
