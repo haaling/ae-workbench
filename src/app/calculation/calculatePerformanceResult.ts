@@ -228,6 +228,33 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
       }))
       .filter((row) => row.订单号 && orderIds.has(row.订单号))
   })
+  const refundDealAmountByOrder = new Map<string, number>()
+  refundFiles.forEach((item) => {
+    const selectedSheet = item.file.sheets.find((sheet) => sheet.name === item.file.selectedSheetName)
+    if (!selectedSheet) {
+      return
+    }
+
+    const dealAmountColumn = selectedSheet.headers.find((header) => normalizeCellValue(header).includes('成交金额'))
+    if (!dealAmountColumn) {
+      return
+    }
+
+    selectedSheet.rows.forEach((row) => {
+      const orderNo = normalizeOrderNo(row[item.orderColumn])
+      if (!orderNo || !orderIds.has(orderNo)) {
+        return
+      }
+
+      const dealAmount = toNumericValue(row[dealAmountColumn])
+      if (Math.abs(dealAmount) < 0.000001) {
+        return
+      }
+
+      const current = toNumericValue(refundDealAmountByOrder.get(orderNo))
+      refundDealAmountByOrder.set(orderNo, normalizeMoney(current + dealAmount))
+    })
+  })
   const refundRiskMap = buildRefundRiskMap(refundRawRows)
 
   const incomeOrderSet = new Set(scopedIncomeDetailRows.map((row) => normalizeOrderNo(row.订单号)).filter(Boolean))
@@ -578,6 +605,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
     const feeItemColumn = toFeeItemAmountColumn(feeItem)
     const current = aggregatedMap.get(orderNo) || {
       订单号: orderNo,
+      订单金额: 0,
       订单状态: normalizeCellValue(row.订单状态),
       是否放款: '否',
       订单时间: normalizeCellValue(row.订单时间),
@@ -642,6 +670,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
       支出合计: 0,
       总收支: 0
     }
+    current.订单金额 = normalizeMoney(refundDealAmountByOrder.get(orderNo) || 0)
 
     if (!normalizeCellValue(current.订单状态) && normalizeCellValue(row.订单状态)) {
       current.订单状态 = normalizeCellValue(row.订单状态)
@@ -998,6 +1027,7 @@ export function calculatePerformanceResult(input: CalculatePerformanceInput): Pr
         订单时间: normalizeCellValue(next.订单时间),
         订单状态: normalizeCellValue(next.订单状态),
         是否放款: normalizeCellValue(next.是否放款) || '否',
+        订单金额: normalizeMoney(next.订单金额),
         订单预计可得: normalizeMoney(next.最终收入_未扣运费),
         物流费用_支出表: normalizeMoney(next.收支表_支出物流费用),
         物流费用_金掌柜: normalizeMoney(next.金掌柜物流费支出),
