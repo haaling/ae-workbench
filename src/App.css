@@ -1,0 +1,137 @@
+.page-shell {
+  min-height: 100vh;
+  padding: 24px 14px;
+  background: linear-gradient(160deg, #fff4d8 0%, #eef5ff 55%, #ebfffa 100%);
+}
+
+.tool-card {
+  width: min(1080px, 100%);
+  margin: 0 auto;
+  border: 1px solid #d7e0f0;
+  border-radius: 16px;
+  background: #fff;
+  padding: 20px;
+  box-shadow: 0 16px 40px rgba(52, 88, 146, 0.12);
+  display: grid;
+  gap: 14px;
+}
+
+.head-block h1 {
+  margin: 0;
+  font-size: clamp(24px, 4vw, 34px);
+  color: #243453;
+  line-height: 1.15;
+}
+
+.head-block p {
+  margin: 8px 0 0;
+  color: #425476;
+}
+
+.form-row {
+  display: grid;
+  gap: 8px;
+}
+
+.form-row > label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2e4064;
+}
+
+.radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.radio-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #304264;
+}
+
+.sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.sheet-item {
+  border: 1px solid #dde7f7;
+  border-radius: 10px;
+  background: #fafdff;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  color: #324467;
+}
+
+.action-row {
+  margin-top: 6px;
+}
+
+.action-row button {
+  border: 1px solid #215de8;
+  border-radius: 10px;
+  min-height: 42px;
+  padding: 0 16px;
+  background: #2967ff;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.action-row button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.msg {
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.msg.error {
+  border: 1px solid #ffc7c7;
+  background: #fff3f3;
+  color: #992c2c;
+}
+
+.msg.success {
+  border: 1px solid #b8e6c3;
+  background: #eefff3;
+  color: #246b44;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  min-width: 780px;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border: 1px solid #e4ebf9;
+  padding: 8px 10px;
+  font-size: 13px;
+  text-align: left;
+}
+
+th {
+  background: #f5f8ff;
+  color: #304262;
+}
+
+td {
+  color: #374969;
+}
